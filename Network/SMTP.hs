@@ -33,9 +33,13 @@ import Control.Monad
 
 import Data.List
 
+import Base64
+
 import Prelude hiding (catch)
 
 type Connect = Socket
+
+data AuthType = PLAIN_AUTH
 
 data Command = HELO String
              | EHLO String
@@ -45,6 +49,7 @@ data Command = HELO String
              | EXPN String
              | VRFY String
              | HELP String
+             | AUTH AuthType String {-^ user name ^-} String {-^ password -}
              | NOOP
              | RSET
              | QUIT
@@ -136,6 +141,11 @@ sendMessage sock (DATA dat) =
     where sendLine l = do ssize <- send sock (l ++ crlf)
                           unless (ssize == length l + 2) $
                                  fail "cannot send data."
+sendCommand (Connection sock _) (AUTH PLAIN_AUTH username password) =
+    do ssize <- send sock command
+       unless (ssize == length command) $ fail "cannot send data."
+       parseResponse sock
+    where command = "AUTH PLAIN " ++ b64Encode (concat $ intersperce "\0" [username, username, password])
 sendCommand (Connection sock _) meth =
     do ssize <- send sock command
        unless (ssize == length command) $ fail "cannot send data."
