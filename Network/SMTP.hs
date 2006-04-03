@@ -1,4 +1,4 @@
-module SMTP
+module Network.SMTP
     ( SMTPMethods(..)
     , SMTPResponse(..)
     , Connect
