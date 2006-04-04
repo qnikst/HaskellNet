@@ -111,7 +111,7 @@ connectSMTPPort :: Integral a => String -> a -> IO Connect
 connectSMTPPort hostname port =
     do sock <- socket AF_INET Stream 6
        host <- inet_addr hostname `catch`
-               (\_ -> getHostByName hostname >>= return . head . hostAddresses)
+               (\_ -> getHostByName hostname >>= return . hostAddress)
        connect sock (SockAddrInet (fromInteger $ toInteger port) host)
        (code, msg) <- parseResponse sock
        unless (code == 220) $
