@@ -1,3 +1,16 @@
+----------------------------------------------------------------------
+-- |
+-- Module      :  Network.SMTP
+-- Copyright   :  (c) Jun Mukai 2006
+-- License     :  BSD-style (see the file LICENSE)
+-- 
+-- Maintainer  :  mukai@jmuk.org
+-- Stability   :  unstable
+-- Portability :  portable
+-- 
+-- SMTP client implementation
+-- 
+
 module Network.SMTP
     ( SMTPMethods(..)
     , SMTPResponse(..)
@@ -47,7 +60,11 @@ instance Enum SMTPResponse where
 
 crlf = "\r\n"
 
-connectSMTPPort :: Integral a => String -> a -> IO Connect
+-- ^ connecting SMTP server with the specified name and port number.
+connectSMTPPort :: Integral a => 
+                   String     -- ^ name of the server
+                -> a          -- ^ port number
+                -> IO Connect
 connectSMTPPort hostname port =
     do sock <- socket AF_INET Stream 6
        host <- inet_addr hostname `catch`
@@ -59,9 +76,12 @@ connectSMTPPort hostname port =
                  fail "cannot connect to server"
        return sock
 
-connectSMTP :: String -> IO Connect
+-- ^ connecting SMTP server with the specified name and port 25.
+connectSMTP :: String     -- ^ name of the server
+            -> IO Connect
 connectSMTP = flip connectSMTPPort 25
 
+-- ^ send a method to a server
 sendMessage :: Connect -> SMTPMethods -> IO (SMTPResponse, String)
 sendMessage sock (DATA dat) =
     do ssize <- send sock $ "DATA\r\n"
@@ -85,10 +105,16 @@ sendMessage sock meth =
           methodToMsg RSET = "RSET\r\n"
           methodToMsg QUIT = "QUIT\r\n"
 
+-- | 
+-- close the connection.  This function send the QUIT method, so you
+-- do not have to QUIT method explicitly.
 closeSMTP :: Connect -> IO ()
 closeSMTP conn = do sendMessage conn QUIT
                     sClose conn
 
+-- | 
+-- sending a mail to a server. This is achieved by sendMessage.  If
+-- something is wrong, it raises an IOexception.
 sendMail :: String   -- ^ sender mail
          -> [String] -- ^ receivers
          -> String   -- ^ data
@@ -104,10 +130,16 @@ sendMail sender receivers dat conn = catcher `handle` mainProc
                          return ()
           catcher e@(PatternMatchFail _) = fail "sendMail error"
           catcher e = throwIO e
-       
+
+-- | 
+-- doSMTPPort open a connection, and do an IO action with the
+-- connection, and then close it.
 doSMTPPort :: Integral a => String -> a -> (Connect -> IO b) -> IO b
 doSMTPPort host port execution =
     bracket (connectSMTPPort host port) closeSMTP execution
 
+-- | 
+-- doSMTP is the similar to doSMTPPort, except that it does not
+-- require port number but connects to the server with port 25.
 doSMTP :: String -> (Connect -> IO a) -> IO a
 doSMTP host execution = doSMTPPort host 25 execution
