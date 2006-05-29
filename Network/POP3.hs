@@ -34,8 +34,6 @@ import Control.Monad
 
 import Data.List
 
-import Base64
-
 import System.IO
 
 import Prelude hiding (catch)
