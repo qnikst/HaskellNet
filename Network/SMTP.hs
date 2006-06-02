@@ -60,7 +60,7 @@ instance Enum SMTPResponse where
 
 crlf = "\r\n"
 
--- ^ connecting SMTP server with the specified name and port number.
+-- | connecting SMTP server with the specified name and port number.
 connectSMTPPort :: Integral a => 
                    String     -- ^ name of the server
                 -> a          -- ^ port number
@@ -76,12 +76,12 @@ connectSMTPPort hostname port =
                  fail "cannot connect to server"
        return sock
 
--- ^ connecting SMTP server with the specified name and port 25.
+-- | connecting SMTP server with the specified name and port 25.
 connectSMTP :: String     -- ^ name of the server
             -> IO Connect
 connectSMTP = flip connectSMTPPort 25
 
--- ^ send a method to a server
+-- | send a method to a server
 sendMessage :: Connect -> SMTPMethods -> IO (SMTPResponse, String)
 sendMessage sock (DATA dat) =
     do ssize <- send sock $ "DATA\r\n"
