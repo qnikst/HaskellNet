@@ -14,7 +14,7 @@
 module Network.SMTP
     ( SMTPMethods(..)
     , SMTPResponse(..)
-    , Connect
+    , SMTPConnection
     , connectSMTPPort
     , connectSMTP
     , sendMessage
@@ -35,7 +35,7 @@ import Data.List
 
 import Prelude hiding (catch)
 
-type Connect = Socket
+type SMTPConnection = Socket
 
 data SMTPMethods = HELO String -- ^ String means a hostname
                  | MAIL String -- ^ String means the sender name (does not required `from:')
@@ -64,7 +64,7 @@ crlf = "\r\n"
 connectSMTPPort :: Integral a => 
                    String     -- ^ name of the server
                 -> a          -- ^ port number
-                -> IO Connect
+                -> IO SMTPConnection
 connectSMTPPort hostname port =
     do sock <- socket AF_INET Stream 6
        host <- inet_addr hostname `catch`
@@ -78,11 +78,11 @@ connectSMTPPort hostname port =
 
 -- | connecting SMTP server with the specified name and port 25.
 connectSMTP :: String     -- ^ name of the server
-            -> IO Connect
+            -> IO SMTPConnection
 connectSMTP = flip connectSMTPPort 25
 
 -- | send a method to a server
-sendMessage :: Connect -> SMTPMethods -> IO (SMTPResponse, String)
+sendMessage :: SMTPConnection -> SMTPMethods -> IO (SMTPResponse, String)
 sendMessage sock (DATA dat) =
     do ssize <- send sock $ "DATA\r\n"
        unless (ssize == 6) $ fail "cannot send method DATA"
@@ -108,7 +108,7 @@ sendMessage sock meth =
 -- | 
 -- close the connection.  This function send the QUIT method, so you
 -- do not have to QUIT method explicitly.
-closeSMTP :: Connect -> IO ()
+closeSMTP :: SMTPConnection -> IO ()
 closeSMTP conn = do sendMessage conn QUIT
                     sClose conn
 
@@ -118,7 +118,7 @@ closeSMTP conn = do sendMessage conn QUIT
 sendMail :: String   -- ^ sender mail
          -> [String] -- ^ receivers
          -> String   -- ^ data
-         -> Connect
+         -> SMTPConnection
          -> IO ()
 sendMail sender receivers dat conn = catcher `handle` mainProc
     where mainProc =  do host <- getHostName
@@ -134,12 +134,12 @@ sendMail sender receivers dat conn = catcher `handle` mainProc
 -- | 
 -- doSMTPPort open a connection, and do an IO action with the
 -- connection, and then close it.
-doSMTPPort :: Integral a => String -> a -> (Connect -> IO b) -> IO b
+doSMTPPort :: Integral a => String -> a -> (SMTPConnection -> IO b) -> IO b
 doSMTPPort host port execution =
     bracket (connectSMTPPort host port) closeSMTP execution
 
 -- | 
 -- doSMTP is the similar to doSMTPPort, except that it does not
 -- require port number but connects to the server with port 25.
-doSMTP :: String -> (Connect -> IO a) -> IO a
+doSMTP :: String -> (SMTPConnection -> IO a) -> IO a
 doSMTP host execution = doSMTPPort host 25 execution
