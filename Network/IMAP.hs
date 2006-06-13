@@ -160,7 +160,7 @@ data ServerResponse = OK (Maybe StatusCode) String
                     | FETCHr Integer [(MessageQuery, String)]
 
 
-type ResponseParser = CharParser () ServerResponse
+type ResponseParser st = CharParser st ServerResponse
 
 crlf :: String
 crlf = "\r\n"
@@ -168,7 +168,7 @@ crlf = "\r\n"
 space :: CharParser st Char
 space = char ' '
 
-listLikeResponse :: String -> ([Attribute] -> String -> Mailbox -> ServerResponse) -> ResponseParser
+listLikeResponse :: String -> ([Attribute] -> String -> Mailbox -> ServerResponse) -> ResponseParser st
 listLikeResponse list listCons = 
     do string list
        attrs <- parseAttrs
@@ -187,11 +187,11 @@ listLikeResponse list listCons =
           parseSep = space >> char '"' >> anyChar `manyTill` char '"'
           parseMailbox = space >> anyChar `manyTill` string crlf
 
-listResponse, lsubResponse :: ResponseParser
+listResponse, lsubResponse :: ResponseParser st
 listResponse = listLikeResponse "LIST" LISTr
 lsubResponse = listLikeResponse "LSUB" LSUBr
 
-normalResponse :: [(String, Maybe StatusCode -> String -> ServerResponse)] -> ResponseParser
+normalResponse :: [(String, Maybe StatusCode -> String -> ServerResponse)] -> ResponseParser st
 normalResponse list = 
     do respcode <- parseCode
        space
@@ -200,7 +200,7 @@ normalResponse list =
        return $ respcode stat body
     where parseCode = choice $ map (\(s, c) -> try (string s) >> return c) list
 
-statusResponse :: ResponseParser
+statusResponse :: ResponseParser st
 statusResponse =
     do string "STATUS"
        space
@@ -218,7 +218,7 @@ statusResponse =
                  num <- many1 digit >>= return . read
                  return (cons, num)
 
-searchResponse :: ResponseParser
+searchResponse :: ResponseParser st
 searchResponse =
     do string "SEARCH"
        space
@@ -226,7 +226,7 @@ searchResponse =
        string crlf
        return $ SEARCHr $ map read nums
 
-flagsResponse :: ResponseParser
+flagsResponse :: ResponseParser st
 flagsResponse =
     do string "FLAGS"
        space
@@ -243,7 +243,7 @@ flagsResponse =
                         , string "Recent" >> return Recent
                         , many1 (noneOf " )") >>= return . Keyword ]
 
-numberedResponse :: [(String, Integer -> ServerResponse)] -> ResponseParser
+numberedResponse :: [(String, Integer -> ServerResponse)] -> ResponseParser st
 numberedResponse list =
     do num <- many1 digit >>= return . read
        space
@@ -251,13 +251,13 @@ numberedResponse list =
        string crlf
        return $ cons num
 
-expungeResponse :: ResponseParser
+expungeResponse :: ResponseParser st
 expungeResponse = numberedResponse [("EXPUNGE", EXPUNGEr)]
 
-fetchResponse :: ResponseParser
+fetchResponse :: ResponseParser st
 fetchResponse = undefined
 
-responseDone :: String -> ResponseParser
+responseDone :: String -> ResponseParser st
 responseDone tag =
     do string tag
        space
