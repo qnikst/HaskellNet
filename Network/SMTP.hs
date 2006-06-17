@@ -108,17 +108,6 @@ codeToResponse 554 = TransactionFailed
 
 crlf = "\r\n"
 
-linesLF ""     = []
-linesLF "\r\n" = []
-linesLF s      = let (l, s') = break (=='\r') s
-                 in case s' of
-                      [] -> [l]
-                      '\r':'\n':s'' -> l : linesLF s''
-                      lf:s''        -> case linesLF s'' of
-                                         []    -> [l++"\r"]
-                                         hd:tl -> (l++"\r"++hd) : tl
-unlinesLF = concat . intersperse crlf
-
 isRight :: Either a b -> Bool
 isRight (Right _) = True
 isRight _         = False
