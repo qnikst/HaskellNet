@@ -34,7 +34,7 @@ import Control.Monad
 
 import Data.List (intersperse)
 
-import Base64
+import Data.Base64
 
 import Prelude hiding (catch)
 
