@@ -73,7 +73,6 @@ crlf = "\r\n"
 
 hexDigest = concatMap (flip showHex "") . hash . map (toEnum.fromEnum) 
 
-startFrom s1 s2 = and $ zipWith (==) (s1 ++ repeat '\000') s2
 e2s = either (\_ -> "") init
 
 connectPop3Port :: String -> Int -> IO POP3Connection
@@ -92,14 +91,14 @@ connectPop3 = flip connectPop3Port 110
 response :: Connection -> IO (Response, String)
 response conn =
     do reply <- liftM e2s $ readLine conn
-       if reply `startFrom` "+OK "
+       if reply `isPrefixOf` "+OK "
          then return (Ok, drop 4 reply)
          else return (Err, drop 5 reply)
 
 -- | parse mutiline of response
 responseML :: Connection -> IO (Response, String)
 responseML conn = do reply <- liftM e2s $ readLine conn
-                     if reply `startFrom` "+OK "
+                     if reply `isPrefixOf` "+OK "
                        then do rest <- getRest
                                return (Ok, unlines (drop 4 reply : rest))
                        else return (Err, drop 5 reply)
