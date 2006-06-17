@@ -34,7 +34,7 @@ import Control.Monad
 
 import Data.List (intersperse)
 
-import Data.Base64
+import qualified Codec.Binary.Base64 as B64 (encode)
 
 import Prelude hiding (catch)
 
@@ -122,6 +122,8 @@ unlinesLF = concat . intersperse crlf
 isRight :: Either a b -> Bool
 isRight (Right _) = True
 isRight _         = False
+
+b64Encode = map (toEnum.fromEnum) . B64.encode . map (toEnum.fromEnum)
 
 -- | connecting SMTP server with the specified name and port number.
 connectSMTPPort :: String  -- ^ name of the server
