@@ -25,6 +25,7 @@ module Network.POP3
     , doPop3Stream
     , user
     , pass
+    , apop
     , auth
     , stat
     , dele
