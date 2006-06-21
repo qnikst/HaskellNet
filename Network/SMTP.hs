@@ -30,6 +30,7 @@ module Network.SMTP
 import Network.TCP
 import Network.Stream
 import Network.BSD
+import Network
 
 import Control.Exception
 import Control.Monad
@@ -117,10 +118,10 @@ isRight _         = False
 b64Encode = map (toEnum.fromEnum) . B64.encode . map (toEnum.fromEnum)
 
 -- | connecting SMTP server with the specified name and port number.
-connectSMTPPort :: String  -- ^ name of the server
-                -> Int     -- ^ port number
+connectSMTPPort :: String     -- ^ name of the server
+                -> PortNumber -- ^ port number
                 -> IO (SMTPConnection Connection)
-connectSMTPPort hostname port = openTCPPort hostname port >>= connectStream
+connectSMTPPort hostname port = openTCPPort hostname (fromEnum port) >>= connectStream
 
 -- | connecting SMTP server with the specified name and port 25.
 connectSMTP :: String     -- ^ name of the server
@@ -219,7 +220,7 @@ sendMail sender receivers dat conn =
 -- | 
 -- doSMTPPort open a connection, and do an IO action with the
 -- connection, and then close it.
-doSMTPPort :: String -> Int -> (SMTPConnection Connection -> IO a) -> IO a
+doSMTPPort :: String -> PortNumber -> (SMTPConnection Connection -> IO a) -> IO a
 doSMTPPort host port execution =
     bracket (connectSMTPPort host port) closeSMTP execution
 

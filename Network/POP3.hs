@@ -41,6 +41,7 @@ module Network.POP3
 
 import Network.TCP
 import Network.Stream
+import Network
 
 import Data.Digest.MD5
 import Numeric (showHex)
@@ -78,8 +79,10 @@ hexDigest = concatMap (flip showHex "") . hash . map (toEnum.fromEnum)
 
 e2s = either (\_ -> "") init
 
-connectPop3Port :: String -> Int -> IO (POP3Connection Connection)
-connectPop3Port hostname port = openTCPPort hostname port >>= connectStream
+-- |
+-- connecting to the pop3 server specified from the hostname and port number
+connectPop3Port :: String -> PortNumber -> IO (POP3Connection Connection)
+connectPop3Port hostname port = openTCPPort hostname (fromEnum port) >>= connectStream
 
 connectPop3 :: String -> IO (POP3Connection Connection)
 connectPop3 = flip connectPop3Port 110
@@ -200,7 +203,7 @@ closePop3 :: Stream a => POP3Connection a -> IO ()
 closePop3 c@(POP3C conn _) = do sendCommand c QUIT
                                 close conn
 
-doPop3Port :: String -> Int -> (POP3Connection Connection -> IO a) -> IO a
+doPop3Port :: String -> PortNumber -> (POP3Connection Connection -> IO a) -> IO a
 doPop3Port host port execution =
     bracket (connectPop3Port host port) closePop3 execution
 
