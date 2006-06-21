@@ -17,10 +17,12 @@ module Network.POP3
     , Response(..)
     , connectPop3Port
     , connectPop3
+    , connectStream
     , sendCommand
     , closePop3
     , doPop3Port
     , doPop3
+    , doPop3Stream
     , user
     , pass
     , auth
@@ -51,7 +53,7 @@ import System.IO
 
 import Prelude hiding (catch)
 
-data POP3Connection = POP3C !Connection !String -- ^ APOP key
+data Stream a => POP3Connection a = POP3C !a !String -- ^ APOP key
 
 data Command = USER String
              | PASS String
@@ -75,20 +77,23 @@ hexDigest = concatMap (flip showHex "") . hash . map (toEnum.fromEnum)
 
 e2s = either (\_ -> "") init
 
-connectPop3Port :: String -> Int -> IO POP3Connection
-connectPop3Port hostname port =
-    do conn <- openTCPPort hostname port
-       (resp, msg) <- response conn
+connectPop3Port :: String -> Int -> IO (POP3Connection Connection)
+connectPop3Port hostname port = openTCPPort hostname port >>= connectStream
+
+connectPop3 :: String -> IO (POP3Connection Connection)
+connectPop3 = flip connectPop3Port 110
+
+connectStream :: Stream a => a -> IO (POP3Connection a)
+connectStream conn =
+    do (resp, msg) <- response conn
        when (resp == Err) $ fail "cannot connect"
        let code = last $ words msg
        if head code == '<' && last code == '>'
          then return $ POP3C conn code
          else return $ POP3C conn ""
 
-connectPop3 :: String -> IO POP3Connection
-connectPop3 = flip connectPop3Port 110
 
-response :: Connection -> IO (Response, String)
+response :: Stream a => a -> IO (Response, String)
 response conn =
     do reply <- liftM e2s $ readLine conn
        if reply `isPrefixOf` "+OK "
@@ -96,7 +101,7 @@ response conn =
          else return (Err, drop 5 reply)
 
 -- | parse mutiline of response
-responseML :: Connection -> IO (Response, String)
+responseML :: Stream a => a -> IO (Response, String)
 responseML conn = do reply <- liftM e2s $ readLine conn
                      if reply `isPrefixOf` "+OK "
                        then do rest <- getRest
@@ -105,7 +110,7 @@ responseML conn = do reply <- liftM e2s $ readLine conn
     where getRest = do l <- liftM e2s $ readLine conn
                        if l == "." then return [] else liftM (l:) getRest
 
-sendCommand :: POP3Connection -> Command -> IO (Response, String)
+sendCommand :: Stream a => POP3Connection a -> Command -> IO (Response, String)
 sendCommand (POP3C conn msg_id) (LIST Nothing) =
     writeBlock conn ("LIST" ++ crlf) >> responseML conn
 sendCommand (POP3C conn msg_id) (UIDL Nothing) =
@@ -128,75 +133,78 @@ sendCommand (POP3C conn msg_id) command =
                          (UIDL msg)  -> "UIDL " ++ maybe "" show msg
                          (APOP user pass) -> "APOP " ++ user ++ " " ++ hexDigest pass
 
-user :: POP3Connection -> String -> IO ()
+user :: Stream a => POP3Connection a -> String -> IO ()
 user conn name = do (resp, _) <- sendCommand conn (USER name)
                     when (resp == Err) $ fail "cannot send user name"
 
-pass :: POP3Connection -> String -> IO ()
+pass :: Stream a => POP3Connection a -> String -> IO ()
 pass conn pwd = do (resp, _) <- sendCommand conn (PASS pwd)
                    when (resp == Err) $ fail "cannot send password"
 
-auth :: POP3Connection -> String -> String -> IO ()
+auth :: Stream a => POP3Connection a -> String -> String -> IO ()
 auth conn name pwd = user conn name >> pass conn pwd
 
-apop :: POP3Connection -> String -> String -> IO ()
+apop :: Stream a => POP3Connection a -> String -> String -> IO ()
 apop conn name pwd = do (resp, _) <- sendCommand conn (APOP name pwd)
                         when (resp == Err) $ fail "cannot authenticate"
 
-stat :: POP3Connection -> IO (Int, Int)
+stat :: Stream a => POP3Connection a -> IO (Int, Int)
 stat conn = do (resp, msg) <- sendCommand conn STAT
                when (resp == Err) $ fail "cannot get stat info"
                let (nn, _:mm) = span (/=' ') msg
                return (read nn, read mm)
 
-dele :: POP3Connection -> Int -> IO ()
+dele :: Stream a => POP3Connection a -> Int -> IO ()
 dele conn n = do (resp, _) <- sendCommand conn (DELE n)
                  when (resp == Err) $ fail "cannot delete"
 
-retr :: POP3Connection -> Int -> IO String
+retr :: Stream a => POP3Connection a -> Int -> IO String
 retr conn n = do (resp, msg) <- sendCommand conn (RETR n)
                  when (resp == Err) $ fail "cannot retrieve"
                  return $ tail $ dropWhile (/='\n') msg
 
-top :: POP3Connection -> Int -> Int -> IO String
+top :: Stream a => POP3Connection a -> Int -> Int -> IO String
 top conn n m = do (resp, msg) <- sendCommand conn (TOP n m)
                   when (resp == Err) $ fail "cannot retrieve"
                   return $ tail $ dropWhile (/='\n') msg
 
-rset :: POP3Connection -> IO ()
+rset :: Stream a => POP3Connection a -> IO ()
 rset conn = do (resp, _) <- sendCommand conn RSET
                when (resp == Err) $ fail "cannot reset"
 
-allList :: POP3Connection -> IO [(Int, Int)]
+allList :: Stream a => POP3Connection a -> IO [(Int, Int)]
 allList conn = do (resp, lst) <- sendCommand conn (LIST Nothing)
                   when (resp == Err) $ fail "cannot retrieve the list"
                   return $ map f $ tail $ lines lst
     where f s = let (n1, _:n2) = span (/=' ') s in (read n1, read n2)
 
-list :: POP3Connection -> Int -> IO Int
+list :: Stream a => POP3Connection a -> Int -> IO Int
 list conn n = do (resp, lst) <- sendCommand conn (LIST (Just n))
                  when (resp == Err) $ fail "cannot retrieve the list"
                  let (_, _:n2) = span (/=' ') lst
                  return $ read n2
 
-allUIDLs :: POP3Connection -> IO [(Int, String)]
+allUIDLs :: Stream a => POP3Connection a -> IO [(Int, String)]
 allUIDLs conn = do (resp, lst) <- sendCommand conn (UIDL Nothing)
                    when (resp == Err) $ fail "cannot retrieve the uidl list"
                    return $ map f $ tail $ lines lst
     where f s = let (n1, _:n2) = span (/=' ') s in (read n1, n2)
 
-uidl :: POP3Connection -> Int -> IO String
+uidl :: Stream a => POP3Connection a -> Int -> IO String
 uidl conn n = do (resp, msg) <- sendCommand conn (UIDL (Just n))
                  when (resp == Err) $ fail "cannot retrieve the uidl data"
                  return $ tail $ dropWhile (/=' ') msg
 
-closePop3 :: POP3Connection -> IO ()
+closePop3 :: Stream a => POP3Connection a -> IO ()
 closePop3 c@(POP3C conn _) = do sendCommand c QUIT
                                 close conn
 
-doPop3Port :: String -> Int -> (POP3Connection -> IO a) -> IO a
+doPop3Port :: String -> Int -> (POP3Connection Connection -> IO a) -> IO a
 doPop3Port host port execution =
     bracket (connectPop3Port host port) closePop3 execution
 
-doPop3 :: String -> (POP3Connection -> IO a) -> IO a
+doPop3 :: String -> (POP3Connection Connection -> IO a) -> IO a
 doPop3 host execution = doPop3Port host 110 execution
+
+doPop3Stream :: Stream a => a -> (POP3Connection a -> IO b) -> IO b
+doPop3Stream conn execution = bracket (connectStream conn) closePop3 execution
