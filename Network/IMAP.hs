@@ -14,8 +14,10 @@
 module Network.IMAP
 where
 
-import Network.BSD
-import Network
+import Network (PortNumber)
+import Network.Stream hiding (close)
+import qualified Network.Stream as S (close)
+import Network.TCP
 
 import Data.Digest.MD5
 import Control.Monad
@@ -25,9 +27,27 @@ import System.Time
 
 import Text.ParserCombinators.Parsec hiding (space)
 
+import Data.IORef
 
-newtype IMAPConnection = IMAPConnection Handle
-    deriving Show
+
+type Mailbox = String
+data MailboxInfo = MboxInfo { mboxName :: IORef Mailbox
+                            , existNum :: IORef Integer
+                            , recentNum :: IORef Integer
+                            }
+
+data Stream s => IMAPConnection s = 
+    IMAPC s MailboxInfo (IORef Int)
+
+mailbox :: Stream s => IMAPConnection s -> IO Mailbox
+mailbox (IMAPC _ mi _) = readIORef $ mboxName mi
+exists, recents :: Stream s => IMAPConnection s -> IO Integer
+exists (IMAPC _ mi _)  = readIORef $ existNum mi
+recents (IMAPC _ mi _) = readIORef $ recentNum mi
+
+stream :: Stream s => IMAPConnection s -> s
+stream (IMAPC s _ _) = s
+
 
 data IMAPCommand = CAPABILITY  -- ^ check the capability of the server
                  | NOOP        -- ^ no operation, but the server may response some status
@@ -44,7 +64,7 @@ data IMAPCommand = CAPABILITY  -- ^ check the capability of the server
                  | UNSUBSCRIBE Mailbox    -- ^ unsubscribe a mailbox
                  | LIST String String     -- ^ list the mailboxs
                  | LSUB String String     -- ^ list the subscribed mailboxs
-                 | STATUS Mailbox [MailboxStatus] -- ^ query the status of the mailbox
+                 | STATUS Mailbox [MailboxStatus] -- ^ query the status of the mvailbox
                  | APPEND Mailbox [String] (Maybe String) String -- ^ append a mail data into a mailbox
                  | CHECK                     -- ^ request for checkpoint of the current mailbox
                  | CLOSE                     -- ^ close the current mailbox
@@ -56,7 +76,6 @@ data IMAPCommand = CAPABILITY  -- ^ check the capability of the server
                  | UID IMAPCommand
 
 type AuthType = ()
-type Mailbox = String
 type UID = Int
 type Charset = String
 data Flag = Seen
@@ -137,9 +156,9 @@ data MessageQuery = BODYf [MessageQueryInner]
                   | FASTf
                   | FULLf
 
-data FlagsQuery = ReplaceFlags [Flag] Bool
-                | PlusFlags [Flag] Bool
-                | MinusFlags [Flag] Bool
+data FlagsQuery = ReplaceFlags [Flag]
+                | PlusFlags [Flag]
+                | MinusFlags [Flag]
 
 
 -- server responses
@@ -167,6 +186,11 @@ crlf = "\r\n"
 
 space :: CharParser st Char
 space = char ' '
+
+doParser :: Monad m => CharParser () (m ()) -> String -> m ()
+doParser p = doEither . parse p ""
+    where doEither (Right m) = m
+          doEither (Left _)  = return ()
 
 listLikeResponse :: String -> ([Attribute] -> String -> Mailbox -> ServerResponse) -> ResponseParser st
 listLikeResponse list listCons = 
@@ -243,7 +267,7 @@ flagsResponse =
                         , string "Recent" >> return Recent
                         , many1 (noneOf " )") >>= return . Keyword ]
 
-numberedResponse :: [(String, Integer -> ServerResponse)] -> ResponseParser st
+numberedResponse :: [(String, Integer -> a)] -> CharParser st a
 numberedResponse list =
     do num <- many1 digit >>= return . read
        space
@@ -278,6 +302,144 @@ parseStatusCode = between (char '[') (char ']') $
                          , string "UIDVALIDITY" >> space >> many1 digit >>= return . UIDVALIDITY_sc . read ]
     where parenWords = space >> between (char '(') (char ')') ((many1 $ noneOf " )") `sepBy1` space)
 
+capabilityResponse :: CharParser st [String]
+capabilityResponse = do try $ string "CAPABILITY"
+                        spaces
+                        line <- many anyChar
+                        return (words line)
 
-connectIMAPPort :: Integral a => String -> a -> IO IMAPConnection
-connectIMAPPort hostname port = undefined
+zipParser :: CharParser st a -> CharParser st b -> CharParser st ([a], [b])
+zipParser p1 p2 = do list <- many (fmap Left p1 <|> fmap Right p2)
+                     return (lefts list, rights list)
+    where lefts [] = []
+          lefts (Left l:ls) = l : lefts ls
+          lefts (_:ls) = lefts ls
+          rights [] = []
+          rights (Right r:rs) = r : rights rs
+          rights (_:rs) = rights rs
+
+
+connectIMAPPort :: String -> PortNumber -> IO (IMAPConnection Connection)
+connectIMAPPort hostname port = openTCPPort hostname (fromEnum port) >>= connectStream
+
+connectIMAP :: String -> IO (IMAPConnection Connection)
+connectIMAP hostname = connectIMAPPort hostname 143
+
+connectStream :: Stream s => s -> IO (IMAPConnection s)
+connectStream s =
+    do msg <- fmap (either (const "") id) $ readLine s
+       unless (and $ zipWith (==) msg "* OK") $ fail "cannot connect to the server"
+       mboxName <- newIORef ""
+       eNum <- newIORef 0
+       rNum <- newIORef 0
+       c <- newIORef 0
+       return $ IMAPC s (MboxInfo mboxName eNum rNum) c
+
+sendCommand :: Stream s => IMAPConnection s -> String -> IO ([String], ServerResponse)
+sendCommand (IMAPC s _ nr) cmdstr =
+    do num <- readIORef nr 
+       writeBlock s (show6 num ++ " " ++ cmdstr ++ crlf)
+       (done, ls) <- readLines [] s
+       let resp = parse (responseDone (show6 num)) "" done
+       modifyIORef nr (+1)
+       case resp of
+         Right resp -> return (ls, resp)
+         _          -> fail "illegal server response"
+    where readLines ls s =
+              do l <- fmap (either (const "") id) $ readLine s
+                 if (and $ zipWith (==) l "* ")
+                    then readLines (drop 2 l:ls) s
+                    else return (l, ls)
+          show6 n | n > 100000 = show n
+                  | n > 10000  = '0' : show n
+                  | n > 1000   = "00" ++ show n
+                  | n > 100    = "000" ++ show n
+                  | n > 10     = "0000" ++ show n
+                  | otherwise  = "00000" ++ show n
+
+noop :: Stream s => IMAPConnection s -> IO ()
+noop conn@(IMAPC s mi _) =
+    do (ls, resp) <- sendCommand conn "NOOP"
+       mapM_ (doParser (numberedResponse noopResps)) ls
+    where noopResps =
+              [ ("EXISTS", writeIORef (existNum mi))
+              , ("RECENT", writeIORef (recentNum mi))]
+
+capability :: Stream s => IMAPConnection s -> IO [String]
+capability conn =
+    do (ls, resp) <- sendCommand conn "CAPABILITY"
+       return $ concatMap (either (const []) id .
+                             parse (capabilityResponse <|> return []) "") ls
+
+logout :: Stream s => IMAPConnection s -> IO ()
+logout conn@(IMAPC s _ _) =
+    do (ls, resp) <- sendCommand conn "LOGOUT"
+       S.close s
+
+select, examine, create, delete :: Stream s =>
+                                   IMAPConnection s -> Mailbox -> IO ()
+select = undefined
+examine = undefined
+create = undefined
+delete = undefined
+
+rename :: Stream s => IMAPConnection s -> Mailbox -> Mailbox -> IO ()
+rename = undefined
+
+subscribe, unsubscribe :: Stream s => IMAPConnection s -> Mailbox -> IO ()
+subscribe = undefined
+unsubscribe = undefined
+
+list, lsub :: Stream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
+list = undefined
+lsub = undefined
+
+status :: Stream s => IMAPConnection s -> Mailbox -> IO [(MailboxStatus, Integer)]
+status = undefined
+
+append :: Stream s => IMAPConnection s -> Mailbox -> String -> IO ()
+append = undefined
+
+appendFull :: Stream s => IMAPConnection s -> Mailbox -> [Flag] -> CalendarTime -> IO ()
+appendFull = undefined
+
+check :: Stream s => IMAPConnection s -> IO ()
+check = undefined
+
+close :: Stream s => IMAPConnection s -> IO ()
+close = undefined
+
+expunge :: Stream s => IMAPConnection s -> IO [Int]
+expunge = undefined
+
+search :: Stream s => IMAPConnection s -> [SearchQuery] -> IO [Int]
+search = undefined
+
+searchCharset :: Stream s => IMAPConnection s -> String -> [SearchQuery] -> IO [Int]
+searchCharset = undefined
+
+fetchByString :: Stream s => IMAPConnection s -> (Int, Int) -> String -> IO [(Int, String)]
+fetchByString = undefined
+
+fetch, fetchHeader, fetchEnvelope :: Stream s => IMAPConnection s -> (Int, Int) -> IO [(Int, String)]
+fetch = undefined
+fetchHeader = undefined
+fetchEnvelope = undefined
+fetchSize :: Stream s => IMAPConnection s -> (Int, Int) -> IO [(Int, Int)]
+fetchSize = undefined
+fetchHeaderIf, fetchHeaderNotIf :: Stream s => IMAPConnection s -> (Int, Int) -> String -> IO [(Int, String)]
+fetchHeaderIf = undefined
+fetchHeaderNotIf = undefined
+fetchFlags :: Stream s => IMAPConnection s -> (Int, Int) -> IO [(Int, [Flag])]
+fetchFlags = undefined
+
+
+store :: Stream s => IMAPConnection s -> (Int, Int) -> FlagsQuery -> IO ()
+store = undefined
+-- storeResults is used without .SILENT, so that its response contains its result flags
+storeResults :: Stream s => IMAPConnection s -> (Int, Int) -> FlagsQuery -> IO [(Int, [Flag])]
+storeResults = undefined
+
+copy :: Stream s => IMAPConnection s -> (Int, Int) -> Mailbox -> IO ()
+copy = undefined
+
