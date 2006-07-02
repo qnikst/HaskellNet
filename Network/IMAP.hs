@@ -28,22 +28,43 @@ import System.Time
 import Text.ParserCombinators.Parsec hiding (space)
 
 import Data.IORef
-
+import Data.Word
+import Data.Maybe
 
 type Mailbox = String
-data MailboxInfo = MboxInfo { mboxName :: IORef Mailbox
-                            , existNum :: IORef Integer
-                            , recentNum :: IORef Integer
-                            }
+type UID = Word64
+data MailboxInfo = MboxInfo { _mailbox :: Mailbox
+                            , _exists :: Integer
+                            , _recent :: Integer
+                            , _flags :: [Flag]
+                            , _permanentFlags :: [Flag]
+                            , _isWritable :: Bool
+                            , _isFlagWritable :: Bool
+                            , _uidNext :: UID
+                            , _uidValidity :: UID
+                            } 
+
 
 data Stream s => IMAPConnection s = 
-    IMAPC s MailboxInfo (IORef Int)
+    IMAPC s (IORef MailboxInfo) (IORef Int)
 
 mailbox :: Stream s => IMAPConnection s -> IO Mailbox
-mailbox (IMAPC _ mi _) = readIORef $ mboxName mi
-exists, recents :: Stream s => IMAPConnection s -> IO Integer
-exists (IMAPC _ mi _)  = readIORef $ existNum mi
-recents (IMAPC _ mi _) = readIORef $ recentNum mi
+mailbox (IMAPC _ mbox _) = fmap _mailbox $ readIORef mbox
+exists, recent :: Stream s => IMAPConnection s -> IO Integer
+exists (IMAPC _ mbox _) = fmap _exists $ readIORef mbox
+recent (IMAPC _ mbox _) = fmap _recent $ readIORef mbox
+
+flags, permanentFlags :: Stream s => IMAPConnection s -> IO [Flag]
+flags (IMAPC _ mbox _) = fmap _flags $ readIORef mbox
+permanentFlags (IMAPC _ mbox _) = fmap _permanentFlags $ readIORef mbox
+
+isWritable, isFlagWritable :: Stream s => IMAPConnection s -> IO Bool
+isWritable (IMAPC _ mbox _) = fmap _isWritable $ readIORef mbox
+isFlagWritable (IMAPC _ mbox _) = fmap _isFlagWritable $ readIORef mbox
+
+uidNext, uidValidity :: Stream s => IMAPConnection s -> IO UID
+uidNext (IMAPC _ mbox _) = fmap _uidNext $ readIORef mbox
+uidValidity (IMAPC _ mbox _) = fmap _uidValidity $ readIORef mbox
 
 stream :: Stream s => IMAPConnection s -> s
 stream (IMAPC s _ _) = s
@@ -76,7 +97,6 @@ data IMAPCommand = CAPABILITY  -- ^ check the capability of the server
                  | UID IMAPCommand
 
 type AuthType = ()
-type UID = Int
 type Charset = String
 data Flag = Seen
           | Answered
@@ -85,6 +105,7 @@ data Flag = Seen
           | Draft
           | Recent
           | Keyword String
+            deriving Eq
 data Attribute = Noinferiors
                | Noselect
                | Marked
@@ -93,13 +114,14 @@ data StatusCode = ALERT
                 | BADCHARSET [String]
                 | CAPABILITY_sc [String]
                 | PARSE
-                | PERMANENTFLAGS [String]
+                | PERMANENTFLAGS [Flag]
                 | READ_ONLY
                 | READ_WRITE
                 | TRYCREATE
-                | UIDNEXT_sc Integer
-                | UIDVALIDITY_sc Integer
+                | UIDNEXT_sc UID
+                | UIDVALIDITY_sc UID
                 | UNSEEN_sc Integer
+                  deriving Eq
 
 
 -- | the query data type for the status command
@@ -166,15 +188,10 @@ data ServerResponse = OK (Maybe StatusCode) String
                     | NO (Maybe StatusCode) String
                     | BAD (Maybe StatusCode) String
                     | PREAUTH (Maybe StatusCode) String
-                    | BYE (Maybe StatusCode) String
-                    | CAPABILITYr [String]
                     | LISTr [Attribute] String Mailbox
                     | LSUBr [Attribute] String Mailbox
                     | STATUSr Mailbox [(MailboxStatus, Integer)]
                     | SEARCHr [Integer]
-                    | FLAGSr [Flag]
-                    | EXISTSr Integer
-                    | RECENTr Integer
                     | EXPUNGEr Integer
                     | FETCHr Integer [(MessageQuery, String)]
 
@@ -186,6 +203,9 @@ crlf = "\r\n"
 
 space :: CharParser st Char
 space = char ' '
+
+atomChar :: CharParser st Char
+atomChar = noneOf " (){%*\"\\]"
 
 doParser :: Monad m => CharParser () (m ()) -> String -> m ()
 doParser p = doEither . parse p ""
@@ -250,22 +270,24 @@ searchResponse =
        string crlf
        return $ SEARCHr $ map read nums
 
-flagsResponse :: ResponseParser st
+flagsResponse :: CharParser st [Flag]
 flagsResponse =
     do string "FLAGS"
        space
        flags <- between (char '(') (char ')') (parseFlag `sepBy` space)
        string crlf
-       return $ FLAGSr flags
-    where parseFlag =
-              do char '\\'
-                 choice [ string "Seen" >> return Seen
-                        , string "Answered" >> return Answered
-                        , string "Flagged" >> return Flagged
-                        , string "Deleted" >> return Deleted
-                        , string "Draft" >> return Draft
-                        , string "Recent" >> return Recent
-                        , many1 (noneOf " )") >>= return . Keyword ]
+       return flags
+
+parseFlag :: CharParser st Flag
+parseFlag = do char '\\'
+               choice [ string "Seen" >> return Seen
+                      , string "Answered" >> return Answered
+                      , string "Flagged" >> return Flagged
+                      , string "Deleted" >> return Deleted
+                      , string "Draft" >> return Draft
+                      , string "Recent" >> return Recent
+                      , many1 atomChar >>= return . Keyword ]
+        <|> (many1 atomChar >>= return . Keyword)
 
 numberedResponse :: [(String, Integer -> a)] -> CharParser st a
 numberedResponse list =
@@ -293,7 +315,7 @@ parseStatusCode = between (char '[') (char ']') $
                          , string "BADCHARSET" >> option [] parenWords >>= return . BADCHARSET
                          , string "CAPABILITY" >> space >> ((many1 $ noneOf " ]") `sepBy1` space) >>= return . CAPABILITY_sc
                          , try (string "PARSE") >> return PARSE
-                         , string "PERMANENTFLAGS" >> parenWords >>= return . PERMANENTFLAGS 
+                         , string "PERMANENTFLAGS" >> parenWords >>= return . PERMANENTFLAGS . map (either (error "no such flag") id . parse parseFlag "")
                          , try (string "READ-ONLY") >> return READ_ONLY
                          , string "READ-WRITE" >> return READ_WRITE 
                          , string "TRYCREATE" >> return TRYCREATE
@@ -329,21 +351,20 @@ connectStream :: Stream s => s -> IO (IMAPConnection s)
 connectStream s =
     do msg <- fmap (either (const "") id) $ readLine s
        unless (and $ zipWith (==) msg "* OK") $ fail "cannot connect to the server"
-       mboxName <- newIORef ""
-       eNum <- newIORef 0
-       rNum <- newIORef 0
+       mbox <- newIORef (MboxInfo "" 0 0 [] [] False False 0 0)
        c <- newIORef 0
-       return $ IMAPC s (MboxInfo mboxName eNum rNum) c
+       return $ IMAPC s mbox c
 
 sendCommand :: Stream s => IMAPConnection s -> String -> IO ([String], ServerResponse)
-sendCommand (IMAPC s _ nr) cmdstr =
+sendCommand (IMAPC s mbox nr) cmdstr =
     do num <- readIORef nr 
        writeBlock s (show6 num ++ " " ++ cmdstr ++ crlf)
        (done, ls) <- readLines [] s
        let resp = parse (responseDone (show6 num)) "" done
        modifyIORef nr (+1)
+       mboxUpdateResponses mbox ls
        case resp of
-         Right resp -> return (ls, resp)
+         Right resp -> return (reverse ls, resp)
          _          -> fail "illegal server response"
     where readLines ls s =
               do l <- fmap (either (const "") id) $ readLine s
@@ -357,13 +378,18 @@ sendCommand (IMAPC s _ nr) cmdstr =
                   | n > 10     = "0000" ++ show n
                   | otherwise  = "00000" ++ show n
 
+mboxUpdateResponses :: IORef MailboxInfo -> [String] -> IO ()
+mboxUpdateResponses mbox ls =
+    mapM_ (doParser (numberedResponse resps)) ls
+    where resps = [ ("EXISTS", updateExists mbox)
+                  , ("RECENT", updateRecent mbox)]
+          updateExists mbox n = do mboxv <- readIORef mbox
+                                   writeIORef mbox (mboxv { _exists = n })
+          updateRecent mbox n = do mboxv <- readIORef mbox
+                                   writeIORef mbox (mboxv { _recent = n })
+
 noop :: Stream s => IMAPConnection s -> IO ()
-noop conn@(IMAPC s mi _) =
-    do (ls, resp) <- sendCommand conn "NOOP"
-       mapM_ (doParser (numberedResponse noopResps)) ls
-    where noopResps =
-              [ ("EXISTS", writeIORef (existNum mi))
-              , ("RECENT", writeIORef (recentNum mi))]
+noop conn@(IMAPC s mbox _) = sendCommand conn "NOOP" >> return ()
 
 capability :: Stream s => IMAPConnection s -> IO [String]
 capability conn =
@@ -376,10 +402,51 @@ logout conn@(IMAPC s _ _) =
     do (ls, resp) <- sendCommand conn "LOGOUT"
        S.close s
 
+login :: Stream s => IMAPConnection s -> String -> String -> IO ()
+login conn@(IMAPC s _ _) user pass =
+    do (ls, resp) <- sendCommand conn $ "LOGIN " ++ user ++ " " ++ pass
+       case resp of
+         OK _ _ -> return ()
+         NO _ _ -> fail $ "cannot login for " ++ user
+         BAD _ _ -> fail "illegal format of username of password"
+
 select, examine, create, delete :: Stream s =>
                                    IMAPConnection s -> Mailbox -> IO ()
-select = undefined
-examine = undefined
+_select cmd conn@(IMAPC s mbox _) mboxName =
+    do (ls, resp) <- sendCommand conn (cmd ++ mboxName)
+       case resp of
+         OK writable _ ->
+             do let oks = oklist ls
+                mapM_ flags ls
+                mapM_ pflags oks
+                mapM_ uidnext oks
+                mapM_ uidvalidity oks
+                mboxv <- readIORef mbox
+                writeIORef mbox (mboxv  { _mailbox = mboxName
+                                        , _isWritable = isJust writable && (fromJust writable == READ_WRITE) })
+                
+         _ -> fail ("cannot select mailbox: " ++ mboxName)
+    where flags l = let flags = parse flagsResponse "" l in
+                    case flags of
+                      Right fs -> do mboxv <- readIORef mbox
+                                     writeIORef mbox (mboxv { _flags = fs })
+                      _ -> return ()
+          oklist = map $ parse (normalResponse [("OK", OK)]) ""
+          pflags (Right (OK (Just (PERMANENTFLAGS flags)) _)) =
+              do mboxv <- readIORef mbox
+                 writeIORef mbox (mboxv { _isFlagWritable = Keyword "*" `elem` flags, _permanentFlags = filter (/= Keyword "*") flags })
+          pflags _ = return ()
+          uidnext (Right (OK (Just (UIDNEXT_sc n)) _)) =
+              do mboxv <- readIORef mbox
+                 writeIORef mbox (mboxv { _uidNext = n })
+          uidnext _ = return ()
+          uidvalidity (Right (OK (Just (UIDVALIDITY_sc n)) _)) =
+              do mboxv <- readIORef mbox
+                 writeIORef mbox (mboxv { _uidValidity = n })
+          uidvalidity _ = return ()
+
+select = _select "SELECT "
+examine = _select "EXAMINE "
 create = undefined
 delete = undefined
 
