@@ -378,6 +378,14 @@ sendCommand (IMAPC s mbox nr) cmdstr =
                   | n > 10     = "0000" ++ show n
                   | otherwise  = "00000" ++ show n
 
+sendAndReceive :: Stream s => IMAPConnection s -> String -> IO ()
+sendAndReceive conn cmd =
+    do (_, resp) <- sendCommand conn cmd
+       case resp of
+         OK _ _    -> return ()
+         NO _ msg  -> fail msg
+         BAD _ msg -> fail msg
+
 mboxUpdateResponses :: IORef MailboxInfo -> [String] -> IO ()
 mboxUpdateResponses mbox ls =
     mapM_ (doParser (numberedResponse resps)) ls
@@ -403,12 +411,8 @@ logout conn@(IMAPC s _ _) =
        S.close s
 
 login :: Stream s => IMAPConnection s -> String -> String -> IO ()
-login conn@(IMAPC s _ _) user pass =
-    do (ls, resp) <- sendCommand conn $ "LOGIN " ++ user ++ " " ++ pass
-       case resp of
-         OK _ _ -> return ()
-         NO _ _ -> fail $ "cannot login for " ++ user
-         BAD _ _ -> fail "illegal format of username of password"
+login conn user pass =
+    sendAndReceive conn $ "LOGIN " ++ user ++ " " ++ pass
 
 select, examine, create, delete :: Stream s =>
                                    IMAPConnection s -> Mailbox -> IO ()
@@ -447,15 +451,16 @@ _select cmd conn@(IMAPC s mbox _) mboxName =
 
 select = _select "SELECT "
 examine = _select "EXAMINE "
-create = undefined
-delete = undefined
+create conn mboxname = sendAndReceive conn $ "CREATE " ++ mboxname
+delete conn mboxname = sendAndReceive conn $ "DELETE " ++ mboxname
 
 rename :: Stream s => IMAPConnection s -> Mailbox -> Mailbox -> IO ()
-rename = undefined
+rename conn mboxorg mboxnew =
+    sendAndReceive conn $ "RENAME " ++ mboxorg ++ " " ++ mboxnew
 
 subscribe, unsubscribe :: Stream s => IMAPConnection s -> Mailbox -> IO ()
-subscribe = undefined
-unsubscribe = undefined
+subscribe conn mboxname = sendAndReceive conn $ "SUBSCRIBE " ++ mboxname
+unsubscribe conn mboxname = sendAndReceive conn $ "UNSUBSCRIBE " ++ mboxname
 
 list, lsub :: Stream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
 list = undefined
