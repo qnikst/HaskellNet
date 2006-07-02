@@ -12,14 +12,18 @@
 -- 
 
 module Network.SMTP
-    ( Command(..)
+    ( -- * Types
+      Command(..)
     , Response(..)
     , SMTPConnection
+      -- * Establishing Connection
     , connectSMTPPort
     , connectSMTP
     , connectStream
+      -- * Operation to a Connection
     , sendCommand
     , closeSMTP
+      -- * Other Useful Operations 
     , sendMail
     , doSMTPPort
     , doSMTP
@@ -53,7 +57,7 @@ data Command = HELO String
              | EXPN String
              | VRFY String
              | HELP String
-             | AUTH AuthType String {-^ user name ^-} String {-^ password -}
+             | AUTH AuthType String String 
              | NOOP
              | RSET
              | QUIT

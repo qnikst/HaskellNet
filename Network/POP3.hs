@@ -12,17 +12,18 @@
 -- 
 
 module Network.POP3
-    ( Command(..)
+    ( -- * Types
+      Command(..)
     , POP3Connection(..)
     , Response(..)
+      -- * Establishing Connection
     , connectPop3Port
     , connectPop3
     , connectStream
+      -- * Send Command
     , sendCommand
+      -- * More Specific Operations
     , closePop3
-    , doPop3Port
-    , doPop3
-    , doPop3Stream
     , user
     , pass
     , apop
@@ -36,6 +37,10 @@ module Network.POP3
     , list
     , allUIDLs
     , uidl
+      -- * Other Useful Operations
+    , doPop3Port
+    , doPop3
+    , doPop3Stream
     )
     where
 
@@ -80,13 +85,17 @@ hexDigest = concatMap (flip showHex "") . hash . map (toEnum.fromEnum)
 e2s = either (\_ -> "") init
 
 -- |
--- connecting to the pop3 server specified from the hostname and port number
+-- connecting to the pop3 server specified by the hostname and port number
 connectPop3Port :: String -> PortNumber -> IO (POP3Connection Connection)
 connectPop3Port hostname port = openTCPPort hostname (fromEnum port) >>= connectStream
 
+-- |
+-- connecting to the pop3 server specified by the hostname. 110 is used for the port number.
 connectPop3 :: String -> IO (POP3Connection Connection)
 connectPop3 = flip connectPop3Port 110
 
+-- |
+-- connecting to the pop3 server via a stream
 connectStream :: Stream a => a -> IO (POP3Connection a)
 connectStream conn =
     do (resp, msg) <- response conn
@@ -114,6 +123,8 @@ responseML conn = do reply <- liftM e2s $ readLine conn
     where getRest = do l <- liftM e2s $ readLine conn
                        if l == "." then return [] else liftM (l:) getRest
 
+-- | sendCommand sends a pop3 command via a pop3 connection.  This
+-- action is too generic. Use more specific actions
 sendCommand :: Stream a => POP3Connection a -> Command -> IO (Response, String)
 sendCommand (POP3C conn msg_id) (LIST Nothing) =
     writeBlock conn ("LIST" ++ crlf) >> responseML conn
