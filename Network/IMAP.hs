@@ -126,10 +126,10 @@ data StatusCode = ALERT
 
 -- | the query data type for the status command
 data MailboxStatus = MESSAGES     -- ^ the number of messages in the mailbox
-                   | RECENTNum    -- ^ the number of messages with the \Recent flag set
+                   | RECENT       -- ^ the number of messages with the \Recent flag set
                    | UIDNEXT      -- ^ the next unique identifier value of the mailbox
                    | UIDVALIDITY  -- ^ the unique identifier validity value of the mailbox
-                  deriving Show
+                     deriving (Show, Read)
 
 -- suffixed by `s'
 data SearchQuery = ALLs
@@ -188,9 +188,6 @@ data ServerResponse = OK (Maybe StatusCode) String
                     | NO (Maybe StatusCode) String
                     | BAD (Maybe StatusCode) String
                     | PREAUTH (Maybe StatusCode) String
-                    | LISTr [Attribute] String Mailbox
-                    | LSUBr [Attribute] String Mailbox
-                    | STATUSr Mailbox [(MailboxStatus, Integer)]
                     | SEARCHr [Integer]
                     | EXPUNGEr Integer
                     | FETCHr Integer [(MessageQuery, String)]
@@ -212,13 +209,19 @@ doParser p = doEither . parse p ""
     where doEither (Right m) = m
           doEither (Left _)  = return ()
 
-listLikeResponse :: String -> ([Attribute] -> String -> Mailbox -> ServerResponse) -> ResponseParser st
-listLikeResponse list listCons = 
+rights :: [Either a b] -> [b]
+rights [] = []
+rights (Right r:es) = r:rights es
+rights (_:es)       = rights es
+
+
+listResponse :: String -> CharParser st ([Attribute], String, Mailbox)
+listResponse list = 
     do string list
        attrs <- parseAttrs
        sep <- parseSep
        mbox <- parseMailbox
-       return $ listCons attrs sep mbox
+       return $ (attrs, sep, mbox)
     where parseAttr =
               do char '\\'
                  choice [ try (string "Noinferior") >> return Noinferiors
@@ -231,10 +234,6 @@ listLikeResponse list listCons =
           parseSep = space >> char '"' >> anyChar `manyTill` char '"'
           parseMailbox = space >> anyChar `manyTill` string crlf
 
-listResponse, lsubResponse :: ResponseParser st
-listResponse = listLikeResponse "LIST" LISTr
-lsubResponse = listLikeResponse "LSUB" LSUBr
-
 normalResponse :: [(String, Maybe StatusCode -> String -> ServerResponse)] -> ResponseParser st
 normalResponse list = 
     do respcode <- parseCode
@@ -244,19 +243,19 @@ normalResponse list =
        return $ respcode stat body
     where parseCode = choice $ map (\(s, c) -> try (string s) >> return c) list
 
-statusResponse :: ResponseParser st
+statusResponse :: CharParser st [(MailboxStatus, Integer)] 
 statusResponse =
     do string "STATUS"
        space
        mbox <- anyChar `manyTill` space
        stats <- between (char '(') (char ')') (parseStat `sepBy1` space)
        string crlf
-       return $ STATUSr mbox stats
+       return stats
     where parseStat =
-              do cons <- choice [ string "MESSAGES" >> return MESSAGES
-                                , string "RECENT" >> return RECENTNum
-                                , try (string "UIDNEXT") >> return UIDNEXT
-                                , string "UIDVALIDITY" >> return UIDVALIDITY
+              do cons <- choice [ string "MESSAGES" >>= return . read
+                                , string "RECENT" >>= return . read
+                                , try (string "UIDNEXT") >>= return . read
+                                , string "UIDVALIDITY" >>= return . read
                                 ]
                  space
                  num <- many1 digit >>= return . read
@@ -463,11 +462,32 @@ subscribe conn mboxname = sendAndReceive conn $ "SUBSCRIBE " ++ mboxname
 unsubscribe conn mboxname = sendAndReceive conn $ "UNSUBSCRIBE " ++ mboxname
 
 list, lsub :: Stream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
-list = undefined
-lsub = undefined
+list conn = fmap (map (\(a, _, m) -> (a, m))) $ listFull conn "\"\"" "*"
+lsub conn = fmap (map (\(a, _, m) -> (a, m))) $ lsubFull conn "\"\"" "*"
 
-status :: Stream s => IMAPConnection s -> Mailbox -> IO [(MailboxStatus, Integer)]
-status = undefined
+listPat, lsubPat :: Stream s => IMAPConnection s -> String -> IO [([Attribute], String, Mailbox)]
+listPat conn pat = listFull conn "\"\"" pat
+lsubPat conn pat = lsubFull conn "\"\"" pat
+
+listFull, lsubFull :: Stream s => IMAPConnection s -> String -> String -> IO [([Attribute], String, Mailbox)]
+listFull conn ref pat = listFull_ conn "LIST" ref pat
+lsubFull conn ref pat = listFull_ conn "LSUB" ref pat
+
+listFull_ conn list ref pat =
+    do (ls, resp) <- sendCommand conn (list ++ " " ++ ref ++ " " ++ pat)
+       case resp of
+         NO _ msg  -> fail msg
+         BAD _ msg -> fail msg
+         OK _ _    -> return $ rights $ map (parse (listResponse list) "") ls
+
+
+status :: Stream s => IMAPConnection s -> Mailbox -> [MailboxStatus] -> IO [(MailboxStatus, Integer)]
+status conn mbox stats =
+    do (ls, resp) <- sendCommand conn ("STATUS " ++ mbox ++ " (" ++ (unwords $ map show stats) ++ ")")
+       case resp of
+         NO _ msg  -> fail msg
+         BAD _ msg -> fail msg
+         OK _ _    -> return $ either (const []) id $ head $ map (parse statusResponse "") ls
 
 append :: Stream s => IMAPConnection s -> Mailbox -> String -> IO ()
 append = undefined
