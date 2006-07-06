@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Network.Stream
+-- Module      :  HaskellNet.Stream
 -- Copyright   :  (c) Warrick Gray 2002, Bjorn Bringert 2003-2004, Simon Foster 2004
 -- License     :  BSD
 --
@@ -15,7 +15,7 @@
 --      - Split module up into to sepearate Network.[Stream,TCP,HTTP] modules
 --      
 -----------------------------------------------------------------------------
-module Network.Stream (
+module HaskellNet.Stream (
     -- ** Streams
     Debug,
     Stream(..),

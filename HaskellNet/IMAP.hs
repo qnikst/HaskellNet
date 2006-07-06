@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------
 -- |
--- Module      :  Network.IMAP
+-- Module      :  HaskellNet.IMAP
 -- Copyright   :  (c) Jun Mukai 2006
 -- License     :  BSD-style (see the file LICENSE)
 -- 
@@ -11,13 +11,13 @@
 -- IMAP client implementation
 -- 
 
-module Network.IMAP
+module HaskellNet.IMAP
 where
 
 import Network (PortNumber)
-import Network.Stream hiding (close)
-import qualified Network.Stream as S (close)
-import Network.TCP
+import HaskellNet.Stream hiding (close)
+import qualified HaskellNet.Stream as S (close)
+import HaskellNet.TCP
 
 import Data.Digest.MD5
 import Control.Monad

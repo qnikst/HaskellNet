@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------
 -- |
--- Module      :  Network.SMTP
+-- Module      :  HaskellNet.SMTP
 -- Copyright   :  (c) Jun Mukai 2006
 -- License     :  BSD-style (see the file LICENSE)
 -- 
@@ -11,7 +11,7 @@
 -- SMTP client implementation
 -- 
 
-module Network.SMTP
+module HaskellNet.SMTP
     ( -- * Types
       Command(..)
     , Response(..)
@@ -31,8 +31,8 @@ module Network.SMTP
     )
     where
 
-import Network.TCP
-import Network.Stream
+import HaskellNet.TCP
+import HaskellNet.Stream
 import Network.BSD
 import Network
 

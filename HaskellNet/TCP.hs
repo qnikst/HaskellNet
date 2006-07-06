@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Network.TCP
+-- Module      :  HaskellNet.TCP
 -- Copyright   :  (c) Warrick Gray 2002, Bjorn Bringert 2003-2004, Simon Foster 2004
 -- License     :  BSD
 --
@@ -15,7 +15,7 @@
 --      - Split module up into to sepearate Network.[Stream,TCP,HTTP] modules
 --      
 -----------------------------------------------------------------------------
-module Network.TCP (
+module HaskellNet.TCP (
     -- ** Connections
     Conn(..),
     Connection(..),
@@ -31,7 +31,7 @@ import Network (withSocketsDo)
 import Network.BSD
 import Network.URI
 import Network.Socket
-import Network.Stream
+import HaskellNet.Stream
 
 import Data.List (isPrefixOf,partition,elemIndex)
 import Data.Char

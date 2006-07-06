@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Network.HTTP
+-- Module      :  HaskellNet.HTTP
 -- Copyright   :  (c) Warrick Gray 2002, Bjorn Bringert 2003-2005
 -- License     :  BSD
 -- 
@@ -87,9 +87,9 @@
 --             had been added (in which case 417 response is returned).
 --
 -----------------------------------------------------------------------------
-module Network.HTTP (
-    module Network.Stream,
-    module Network.TCP,
+module HaskellNet.HTTP (
+    module HaskellNet.Stream,
+    module HaskellNet.TCP,
 
     -- ** Constants
     httpVersion,
@@ -137,8 +137,8 @@ import Network (withSocketsDo)
 import Network.BSD
 import Network.URI
 import Network.Socket
-import Network.Stream
-import Network.TCP
+import HaskellNet.Stream
+import HaskellNet.TCP
 
 
 -- Util

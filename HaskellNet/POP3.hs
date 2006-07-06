@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------
 -- |
--- Module      :  Network.POP3
+-- Module      :  HaskellNet.POP3
 -- Copyright   :  (c) Jun Mukai 2006
 -- License     :  BSD-style (see the file LICENSE)
 -- 
@@ -11,7 +11,7 @@
 -- POP3 client implementation
 -- 
 
-module Network.POP3
+module HaskellNet.POP3
     ( -- * Types
       Command(..)
     , POP3Connection(..)
@@ -44,8 +44,8 @@ module Network.POP3
     )
     where
 
-import Network.TCP
-import Network.Stream
+import HaskellNet.TCP
+import HaskellNet.Stream
 import Network
 
 import Data.Digest.MD5
