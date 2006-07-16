@@ -30,6 +30,7 @@ import Text.ParserCombinators.Parsec hiding (space)
 import Data.IORef
 import Data.Word
 import Data.Maybe
+import Data.List
 
 type Mailbox = String
 type UID = Word64
@@ -106,6 +107,18 @@ data Flag = Seen
           | Recent
           | Keyword String
             deriving Eq
+
+instance Show Flag where
+    showsPrec d f = showParen (d > app_prec) $ showString $ showFlag f
+        where app_prec = 10
+              showFlag Seen        = "\\Seen"
+              showFlag Answered    = "\\Answered"
+              showFlag Flagged     = "\\Flagged"
+              showFlag Deleted     = "\\Deleted"
+              showFlag Draft       = "\\Draft"
+              showFlag Recent      = "\\Recent"
+              showFlag (Keyword s) = "\\" ++ s
+
 data Attribute = Noinferiors
                | Noselect
                | Marked
@@ -189,7 +202,6 @@ data ServerResponse = OK (Maybe StatusCode) String
                     | BAD (Maybe StatusCode) String
                     | PREAUTH (Maybe StatusCode) String
                     | SEARCHr [Integer]
-                    | EXPUNGEr Integer
                     | FETCHr Integer [(MessageQuery, String)]
 
 
@@ -296,8 +308,6 @@ numberedResponse list =
        string crlf
        return $ cons num
 
-expungeResponse :: ResponseParser st
-expungeResponse = numberedResponse [("EXPUNGE", EXPUNGEr)]
 
 fetchResponse :: ResponseParser st
 fetchResponse = undefined
@@ -354,28 +364,34 @@ connectStream s =
        c <- newIORef 0
        return $ IMAPC s mbox c
 
-sendCommand :: Stream s => IMAPConnection s -> String -> IO ([String], ServerResponse)
-sendCommand (IMAPC s mbox nr) cmdstr =
+sendCommand' :: Stream s => IMAPConnection s -> String -> IO (String, [String])
+sendCommand' (IMAPC s mbox nr) cmdstr =
     do num <- readIORef nr 
        writeBlock s (show6 num ++ " " ++ cmdstr ++ crlf)
-       (done, ls) <- readLines [] s
-       let resp = parse (responseDone (show6 num)) "" done
        modifyIORef nr (+1)
-       mboxUpdateResponses mbox ls
-       case resp of
-         Right resp -> return (reverse ls, resp)
-         _          -> fail "illegal server response"
+       readLines [] s
     where readLines ls s =
               do l <- fmap (either (const "") id) $ readLine s
                  if (and $ zipWith (==) l "* ")
                     then readLines (drop 2 l:ls) s
                     else return (l, ls)
-          show6 n | n > 100000 = show n
-                  | n > 10000  = '0' : show n
-                  | n > 1000   = "00" ++ show n
-                  | n > 100    = "000" ++ show n
-                  | n > 10     = "0000" ++ show n
-                  | otherwise  = "00000" ++ show n
+
+show6 n | n > 100000 = show n
+        | n > 10000  = '0' : show n
+        | n > 1000   = "00" ++ show n
+        | n > 100    = "000" ++ show n
+        | n > 10     = "0000" ++ show n
+        | otherwise  = "00000" ++ show n
+
+sendCommand :: Stream s => IMAPConnection s -> String -> IO ([String], ServerResponse)
+sendCommand imapc@(IMAPC _ mbox nr) cmdstr =
+    do num <- readIORef nr
+       (done, ls) <- sendCommand' imapc cmdstr
+       let resp = parse (responseDone (show6 num)) "" done
+       mboxUpdateResponses mbox ls
+       case resp of
+         Right resp -> return (reverse ls, resp)
+         _          -> fail "illegal server response"
 
 sendAndReceive :: Stream s => IMAPConnection s -> String -> IO ()
 sendAndReceive conn cmd =
@@ -490,19 +506,47 @@ status conn mbox stats =
          OK _ _    -> return $ either (const []) id $ head $ map (parse statusResponse "") ls
 
 append :: Stream s => IMAPConnection s -> Mailbox -> String -> IO ()
-append = undefined
+append conn mbox mailData = appendFull conn mbox mailData [] Nothing
 
-appendFull :: Stream s => IMAPConnection s -> Mailbox -> [Flag] -> CalendarTime -> IO ()
-appendFull = undefined
+appendFull :: Stream s => IMAPConnection s -> Mailbox -> String -> [Flag] -> Maybe CalendarTime -> IO ()
+appendFull conn@(IMAPC s _ nr) mbox mailData flags time = 
+    do num <- readIORef nr
+       (r, _) <- sendCommand' conn (sep ["APPEND", mbox
+                                        , fstr, tstr,  "{" ++ show len ++ "}"])
+       unless (null r || (head r /= '+')) $ fail "illegal server response"
+       writeBlock s mailData'
+       doneStr <- fmap (either (const "") id) $ readLine s
+       let resp = parse (responseDone (show6 num)) "" doneStr
+       case resp of
+         Right resp -> return ()
+         _          -> fail "illegal server response"
+    where mailLines = map (++crlf) $ lines mailData
+          len       = sum $ map length mailLines
+          mailData' = concat mailLines
+          tstr      = maybe "" show time
+          sep       = concat . intersperse " "
+          fstr      = sep $ map show flags
 
 check :: Stream s => IMAPConnection s -> IO ()
-check = undefined
+check conn = do (_, resp) <- sendCommand conn "CHECK"
+                case resp of
+                  BAD _ msg -> fail msg
+                  OK _ _    -> return ()
 
 close :: Stream s => IMAPConnection s -> IO ()
-close = undefined
+close conn = do (_, resp) <- sendCommand conn "CLOSE"
+                case resp of
+                  BAD _ msg -> fail msg
+                  OK _ _    -> return ()
 
 expunge :: Stream s => IMAPConnection s -> IO [Int]
-expunge = undefined
+expunge conn = do (ls, resp) <- sendCommand conn "EXPUNGE"
+                  case resp of
+                    NO _ msg  -> fail msg
+                    BAD _ msg -> fail msg
+                    OK _ _    -> return $ catMaybes $ map pFunc ls
+    where expungeParser = numberedResponse [("EXPUNGE", fromIntegral)]
+          pFunc = either (const Nothing) Just . parse expungeParser ""
 
 search :: Stream s => IMAPConnection s -> [SearchQuery] -> IO [Int]
 search = undefined
