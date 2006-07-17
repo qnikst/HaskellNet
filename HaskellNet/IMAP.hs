@@ -71,6 +71,26 @@ stream :: Stream s => IMAPConnection s -> s
 stream (IMAPC s _ _) = s
 
 
+dateToStringIMAP :: CalendarTime -> String
+dateToStringIMAP date = concat $ intersperse "-" [show2 $ ctDay date
+                                                 , showMonth $ ctMonth date
+                                                 , show $ ctYear date]
+    where show2 n | n < 10    = '0' : show n
+                  | otherwise = show n
+          showMonth January   = "Jan"
+          showMonth February  = "Feb"
+          showMonth March     = "Mar"
+          showMonth April     = "Apr"
+          showMonth May       = "May"
+          showMonth June      = "Jun"
+          showMonth July      = "Jul"
+          showMonth August    = "Aug"
+          showMonth September = "Sep"
+          showMonth October   = "Oct"
+          showMonth November  = "Nov"
+          showMonth December  = "Dec"
+
+
 data IMAPCommand = CAPABILITY  -- ^ check the capability of the server
                  | NOOP        -- ^ no operation, but the server may response some status
                  | LOGOUT
@@ -154,6 +174,7 @@ data SearchQuery = ALLs
                  | CCs String
                  | FROMs String
                  | HEADERs String String
+                 | LARGERs Integer
                  | NEWs
                  | NOTs SearchQuery
                  | OLDs
@@ -167,7 +188,45 @@ data SearchQuery = ALLs
                  | SUBJECTs String
                  | TEXTs String
                  | TOs String
-                 | UIDs [Integer]
+                 | UIDs [UID]
+
+
+instance Show SearchQuery where
+    showsPrec d q = showParen (d>app_prec) $ showString $ showQuery q
+        where app_prec = 10
+              showQuery ALLs            = "ALL"
+              showQuery (FLAG f)        = showFlag f
+              showQuery (UNFLAG f)      = "UN" ++ showFlag f
+              showQuery (BCCs addr)     = "BCC " ++ addr
+              showQuery (BEFOREs t)     = "BEFORE " ++ dateToStringIMAP t
+              showQuery (BODYs s)       = "BODY " ++ s
+              showQuery (CCs addr)      = "CC " ++ addr
+              showQuery (FROMs addr)    = "FROM " ++ addr
+              showQuery (HEADERs f v)   = "HEADER " ++ f ++ " " ++ v
+              showQuery (LARGERs siz)   = "LARGER {" ++ show siz ++ "}"
+              showQuery NEWs            = "NEW"
+              showQuery (NOTs q)        = "NOT " ++ show q
+              showQuery OLDs            = "OLD"
+              showQuery (ONs t)         = "ON " ++ dateToStringIMAP t
+              showQuery (ORs q1 q2)     = "OR " ++ show q1 ++ " " ++ show q2 
+              showQuery (SENTBEFOREs t) = "SENTBEFORE " ++ dateToStringIMAP t
+              showQuery (SENTONs t)     = "SENTON " ++ dateToStringIMAP t
+              showQuery (SENTSINCEs t)  = "SENTSINCE " ++ dateToStringIMAP t
+              showQuery (SINCEs t)      = "SINCE " ++ dateToStringIMAP t
+              showQuery (SMALLERs siz)  = "SMALLER {" ++ show siz ++ "}"
+              showQuery (SUBJECTs s)    = "SUBJECT " ++ s
+              showQuery (TEXTs s)       = "TEXT " ++ s
+              showQuery (TOs addr)      = "TO " ++ addr
+              showQuery (UIDs uids)     = concat $ intersperse "," $ map show uids
+              showFlag Seen        = "SEEN"
+              showFlag Answered    = "ANSWERED"
+              showFlag Flagged     = "FLAGGED"
+              showFlag Deleted     = "DELETED"
+              showFlag Draft       = "DRAFT"
+              showFlag Recent      = "RECENT"
+              showFlag (Keyword s) = "KEYWORD " ++ s
+            
+
 
 data MessageQueryInner = PART Int (Maybe MessageQueryInner)
                        | BODY
@@ -201,7 +260,6 @@ data ServerResponse = OK (Maybe StatusCode) String
                     | NO (Maybe StatusCode) String
                     | BAD (Maybe StatusCode) String
                     | PREAUTH (Maybe StatusCode) String
-                    | SEARCHr [Integer]
                     | FETCHr Integer [(MessageQuery, String)]
 
 
@@ -220,6 +278,11 @@ doParser :: Monad m => CharParser () (m ()) -> String -> m ()
 doParser p = doEither . parse p ""
     where doEither (Right m) = m
           doEither (Left _)  = return ()
+
+catRights :: [Either a b] -> [b]
+catRights []           = []
+catRights (Right r:tl) = r : catRights tl
+catRights (_:tl)       = catRights tl
 
 rights :: [Either a b] -> [b]
 rights [] = []
@@ -273,13 +336,13 @@ statusResponse =
                  num <- many1 digit >>= return . read
                  return (cons, num)
 
-searchResponse :: ResponseParser st
+searchResponse :: CharParser st [UID]
 searchResponse =
     do string "SEARCH"
        space
        nums <- (many1 digit) `sepBy` space
        string crlf
-       return $ SEARCHr $ map read nums
+       return $ map read nums
 
 flagsResponse :: CharParser st [Flag]
 flagsResponse =
@@ -400,6 +463,7 @@ sendAndReceive conn cmd =
          OK _ _    -> return ()
          NO _ msg  -> fail msg
          BAD _ msg -> fail msg
+         
 
 mboxUpdateResponses :: IORef MailboxInfo -> [String] -> IO ()
 mboxUpdateResponses mbox ls =
@@ -539,20 +603,29 @@ close conn = do (_, resp) <- sendCommand conn "CLOSE"
                   BAD _ msg -> fail msg
                   OK _ _    -> return ()
 
-expunge :: Stream s => IMAPConnection s -> IO [Int]
+expunge :: Stream s => IMAPConnection s -> IO [Integer]
 expunge conn = do (ls, resp) <- sendCommand conn "EXPUNGE"
                   case resp of
                     NO _ msg  -> fail msg
                     BAD _ msg -> fail msg
-                    OK _ _    -> return $ catMaybes $ map pFunc ls
-    where expungeParser = numberedResponse [("EXPUNGE", fromIntegral)]
-          pFunc = either (const Nothing) Just . parse expungeParser ""
+                    OK _ _    -> return $ parse' ls
+    where expungeParser = numberedResponse [("EXPUNGE", id)]
+          parse' = catRights . map (parse expungeParser "")
 
-search :: Stream s => IMAPConnection s -> [SearchQuery] -> IO [Int]
-search = undefined
+search :: Stream s => IMAPConnection s -> [SearchQuery] -> IO [UID]
+search conn queries = searchCharset conn "" queries
 
-searchCharset :: Stream s => IMAPConnection s -> String -> [SearchQuery] -> IO [Int]
-searchCharset = undefined
+searchCharset :: Stream s => IMAPConnection s -> String -> [SearchQuery] -> IO [UID]
+searchCharset conn charset queries =
+    do (ls, resp) <- sendCommand conn
+                     ("UID SEARCH " ++ charsetstr ++ " " ++ qstr)
+       case resp of
+         OK _ _ -> return $ parse' ls
+         BAD _ msg -> fail msg
+         NO _ msg  -> fail msg
+      where qstr = "(" ++ (concat $ intersperse " " $ map show queries)++ ")"
+            charsetstr = if null charset then "" else "CHARSET " ++ charset
+            parse' = concat . catRights . map (parse searchResponse "")
 
 fetchByString :: Stream s => IMAPConnection s -> (Int, Int) -> String -> IO [(Int, String)]
 fetchByString = undefined
@@ -569,13 +642,38 @@ fetchHeaderNotIf = undefined
 fetchFlags :: Stream s => IMAPConnection s -> (Int, Int) -> IO [(Int, [Flag])]
 fetchFlags = undefined
 
+storeFull conn uidstr query isSilent =
+    do (ls, resp) <- sendCommand conn ("UID STORE " ++ uidstr ++ flags query)
+       case resp of
+         NO _ msg  -> fail msg
+         BAD _ msg -> fail msg
+         OK _ _    -> return []
+    where fstrs fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
+          toFStr s fstrs =
+              s ++ (if isSilent then ".SILENT" else "") ++ " " ++ fstrs
+          flags (ReplaceFlags fs) = toFStr "FLAGS" $ fstrs fs
+          flags (PlusFlags fs)    = toFStr "+FLAGS" $ fstrs fs
+          flags (MinusFlags fs)   = toFStr "-FLAGS" $ fstrs fs
 
-store :: Stream s => IMAPConnection s -> (Int, Int) -> FlagsQuery -> IO ()
-store = undefined
+
+store :: Stream s => IMAPConnection s -> UID -> FlagsQuery -> IO ()
+storeR :: Stream s => IMAPConnection s -> (UID, UID) -> FlagsQuery -> IO ()
+store conn i q       = storeFull conn (show i) q True >> return ()
+storeR conn (s, e) q = storeFull conn (show s++":"++show e) q True >> return ()
 -- storeResults is used without .SILENT, so that its response contains its result flags
-storeResults :: Stream s => IMAPConnection s -> (Int, Int) -> FlagsQuery -> IO [(Int, [Flag])]
-storeResults = undefined
+storeResults :: Stream s => IMAPConnection s -> UID -> FlagsQuery -> IO [(UID, [Flag])]
+storeResultsR :: Stream s => IMAPConnection s -> (UID, UID) -> FlagsQuery -> IO [(UID, [Flag])]
+storeResults conn i q       = storeFull conn (show i) q False
+storeResultsR conn (s, e) q = storeFull conn (show s++":"++show e) q False
 
-copy :: Stream s => IMAPConnection s -> (Int, Int) -> Mailbox -> IO ()
-copy = undefined
+copy :: Stream s => IMAPConnection s -> UID -> Mailbox -> IO ()
+copyR :: Stream s => IMAPConnection s -> (UID, UID) -> Mailbox -> IO ()
+copyFull conn uidStr mbox =
+    do (_, resp) <- sendCommand conn ("UID COPY " ++ uidStr ++ " " ++ mbox)
+       case resp of
+         BAD _ msg -> fail msg
+         NO _ msg  -> fail msg
+         OK _ _    -> return ()
 
+copy conn uid mbox     = copyFull conn (show uid) mbox
+copyR conn (s, e) mbox = copyFull conn (show s++":"++show e) mbox
