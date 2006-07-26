@@ -262,7 +262,6 @@ data ServerResponse = OK (Maybe StatusCode) String
                     | NO (Maybe StatusCode) String
                     | BAD (Maybe StatusCode) String
                     | PREAUTH (Maybe StatusCode) String
-                    | FETCHr Integer [(MessageQuery, String)]
 
 
 type ResponseParser st = CharParser st ServerResponse
