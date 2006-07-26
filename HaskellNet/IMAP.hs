@@ -21,6 +21,7 @@ import HaskellNet.TCP
 
 import Data.Digest.MD5
 import Control.Monad
+import Control.Monad.Writer
 
 import System.IO
 import System.Time
@@ -31,6 +32,7 @@ import Data.IORef
 import Data.Word
 import Data.Maybe
 import Data.List
+import Data.Char (isSpace, isDigit, toUpper)
 
 type Mailbox = String
 type UID = Word64
@@ -289,6 +291,26 @@ rights [] = []
 rights (Right r:es) = r:rights es
 rights (_:es)       = rights es
 
+isLeft, isRight :: Either a b -> Bool
+isLeft (Left _) = True
+isLeft _        = False
+isRight (Right _) = True
+isRight _         = False
+
+getLeft :: Either a b -> a
+getLeft (Left l) = l
+getLeft _        = error "not left"
+getRight :: Either a b -> b
+getRight (Right r) = r
+getRight _         = error "not right"
+
+readLine' :: Stream s => s -> IO String
+readLine' s = do l <- readLine s
+                 return $ either (const $ fail "cannot read line") id $ l
+readBlock' :: Stream s => s -> Int -> IO String
+readBlock' s len = do b <- readBlock s len
+                      return $ either (const $ fail "cannot read block") id $ b
+
 
 listResponse :: String -> CharParser st ([Attribute], String, Mailbox)
 listResponse list = 
@@ -336,6 +358,46 @@ statusResponse =
                  num <- many1 digit >>= return . read
                  return (cons, num)
 
+
+fetchResponse :: Stream s => String -> s -> WriterT [String] IO [(Int, [(String, String)])]
+fetchResponse tag s =
+    do l <- liftIO $ readLine' s
+       if null l || (head l == '*' && not (isFetch l))
+          then tell [l] >> fetchResponse tag s
+          else if not (null l) && (head l /= '*') && tagged l
+               then tell [l] >> return []
+               else fetchMain $ parse singleLine "" l
+    where isFetch ('*':l) = "FETCH" == (take 5 $ dropWhile isSpace $ dropWhile isDigit $ dropWhile isSpace l)
+          tagged l = length l >= length tag && (and $ zipWith (==) tag l)
+          fetchMain (Left _) = fetchResponse tag s
+          fetchMain (Right (n, ps, Nothing)) =
+              fmap ((n, ps):) $ fetchResponse tag s
+          fetchMain (Right (n, ps, Just len)) =
+              do v <- liftIO $ readBlock' s len
+                 let ps' = init ps ++ [(fst $ last ps, v)]
+                 l' <- liftIO $ readLine' s
+                 v <- fetchMain (parse (getPairs n) "" l')
+                 return $ (n, ps' ++ snd (head v)) : tail v
+          singleLine = do spaces
+                          n <- fmap read $ many1 digit
+                          spaces >> string "FETCH" >> spaces >> char '('
+                          getPairs n
+          getPairs n = (getPair `sepBy` spaces) >>= \ps ->
+                       if isLeft $ snd $ last ps
+                       then do char ')' >> string crlf
+                               return (n, map fixEither ps, Nothing) 
+                       else do string crlf
+                               return ( n
+                                      , map fixEither ps
+                                      , Just $ getRight $ snd $ last ps)
+          fixEither (k, v) = (k, either id (const "") v)
+          getPair = liftM2 (,) (anyChar `manyTill` many1 space) getValues
+          getValues = do char '('
+                         s <- anyChar `manyTill` char ')'
+                         return $ Left $ '(':s++")"
+                  <|> fmap (Right . read) (between (char '{') (char '}') (many1 digit))
+                  <|> fmap Left (anyChar `manyTill` space)
+
 searchResponse :: CharParser st [UID]
 searchResponse =
     do string "SEARCH"
@@ -371,9 +433,6 @@ numberedResponse list =
        string crlf
        return $ cons num
 
-
-fetchResponse :: ResponseParser st
-fetchResponse = undefined
 
 responseDone :: String -> ResponseParser st
 responseDone tag =
@@ -421,7 +480,7 @@ connectIMAP hostname = connectIMAPPort hostname 143
 
 connectStream :: Stream s => s -> IO (IMAPConnection s)
 connectStream s =
-    do msg <- fmap (either (const "") id) $ readLine s
+    do msg <- readLine' s
        unless (and $ zipWith (==) msg "* OK") $ fail "cannot connect to the server"
        mbox <- newIORef (MboxInfo "" 0 0 [] [] False False 0 0)
        c <- newIORef 0
@@ -434,7 +493,7 @@ sendCommand' (IMAPC s mbox nr) cmdstr =
        modifyIORef nr (+1)
        readLines [] s
     where readLines ls s =
-              do l <- fmap (either (const "") id) $ readLine s
+              do l <- readLine' s
                  if (and $ zipWith (==) l "* ")
                     then readLines (drop 2 l:ls) s
                     else return (l, ls)
@@ -579,7 +638,7 @@ appendFull conn@(IMAPC s _ nr) mbox mailData flags time =
                                         , fstr, tstr,  "{" ++ show len ++ "}"])
        unless (null r || (head r /= '+')) $ fail "illegal server response"
        writeBlock s mailData'
-       doneStr <- fmap (either (const "") id) $ readLine s
+       doneStr <- readLine' s
        let resp = parse (responseDone (show6 num)) "" doneStr
        case resp of
          Right resp -> return ()
@@ -627,33 +686,71 @@ searchCharset conn charset queries =
             charsetstr = if null charset then "" else "CHARSET " ++ charset
             parse' = concat . catRights . map (parse searchResponse "")
 
-fetchByString :: Stream s => IMAPConnection s -> (Int, Int) -> String -> IO [(Int, String)]
-fetchByString = undefined
+fetch, fetchHeader :: Stream s => IMAPConnection s -> UID -> IO String
+fetch conn uid =
+    do lst <- fetchByString conn uid "BODY[]"
+       return $ maybe "" id $ lookup "BODY[]" lst
+fetchHeader conn uid =
+    do lst <- fetchByString conn uid "BODY[HEADER]"
+       return $ maybe "" id $ lookup "BODY[HEADER]" lst
+fetchSize :: Stream s => IMAPConnection s -> UID -> IO Int
+fetchSize conn uid =
+    do lst <- fetchByString conn uid "RFC822.SIZE"
+       return $ maybe 0 read $ lookup "RFC822.SIZE" lst
+fetchHeaderFields, fetchHeaderFieldsNot :: Stream s => IMAPConnection s -> UID -> [String] -> IO String
+fetchHeaderFields conn uid hs =
+    do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS "++unwords hs++"]")
+       return $ maybe "" id $
+              lookup ("BODY[HEADER.FIELDS "++unwords hs++"]") lst
+fetchHeaderFieldsNot conn uid hs = 
+    do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS.NOT "++unwords hs++"]")
+       return $ maybe "" id $ lookup ("BODY[HEADER.FIELDS.NOT "++unwords hs++"]") lst
+fetchFlags :: Stream s => IMAPConnection s -> UID -> IO [Flag]
+fetchFlags conn uid =
+    do lst <- fetchByString conn uid "FLAGS"
+       return $ getFlags $ lookup "FLAGS" lst
+    where getFlags Nothing  = []
+          getFlags (Just s) = either (const []) id $ parse (between (char '(') (char ')') (parseFlag `sepBy` space)) "" s
 
-fetch, fetchHeader, fetchEnvelope :: Stream s => IMAPConnection s -> (Int, Int) -> IO [(Int, String)]
-fetch = undefined
-fetchHeader = undefined
-fetchEnvelope = undefined
-fetchSize :: Stream s => IMAPConnection s -> (Int, Int) -> IO [(Int, Int)]
-fetchSize = undefined
-fetchHeaderIf, fetchHeaderNotIf :: Stream s => IMAPConnection s -> (Int, Int) -> String -> IO [(Int, String)]
-fetchHeaderIf = undefined
-fetchHeaderNotIf = undefined
-fetchFlags :: Stream s => IMAPConnection s -> (Int, Int) -> IO [(Int, [Flag])]
-fetchFlags = undefined
+fetchR :: Stream s => IMAPConnection s -> (UID, UID) -> IO [(UID, String)]
+fetchR conn r =
+    do lst <- fetchByStringR conn r "BODY[]"
+       return $ map (\(uid, vs) -> (uid, maybe "" id $ lookup "BODY[]" vs)) lst
+fetchByString :: Stream s => IMAPConnection s -> UID -> String -> IO [(String, String)]
+fetchByString conn uid command =
+    do lst <- fetchCommand conn ("UID FETCH "++show uid++" "++command) id
+       return $ snd $ head lst
+fetchByStringR :: Stream s => IMAPConnection s -> (UID, UID) -> String -> IO [(UID, [(String, String)])]
+fetchByStringR conn (s, e) command =
+    fetchCommand conn ("UID FETCH "++show s++":"++show e++" "++command) proc
+    where proc (n, ps) = (maybe (toEnum n) read (lookup "UID" ps), ps)
 
+fetchCommand conn@(IMAPC s mbox nr) command proc =
+    do num <- readIORef nr
+       writeBlock s command
+       modifyIORef nr (+1)
+       (fetched, others) <- runWriterT $ fetchResponse (show6 num) s
+       mboxUpdateResponses mbox $ init others
+       case parse (responseDone (show6 num)) "" (last others) of
+         Left _    -> fail "illegal server response"
+         Right (NO _ msg)  -> fail msg
+         Right (BAD _ msg) -> fail msg
+         Right (OK _ _)    -> return $ map proc fetched
+
+storeFull :: Stream s => IMAPConnection s -> String -> FlagsQuery -> Bool -> IO [(UID, [Flag])]
 storeFull conn uidstr query isSilent =
-    do (ls, resp) <- sendCommand conn ("UID STORE " ++ uidstr ++ flags query)
-       case resp of
-         NO _ msg  -> fail msg
-         BAD _ msg -> fail msg
-         OK _ _    -> return []
+    fetchCommand conn ("UID STORE " ++ uidstr ++ flags query) procStore
     where fstrs fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
           toFStr s fstrs =
               s ++ (if isSilent then ".SILENT" else "") ++ " " ++ fstrs
           flags (ReplaceFlags fs) = toFStr "FLAGS" $ fstrs fs
           flags (PlusFlags fs)    = toFStr "+FLAGS" $ fstrs fs
           flags (MinusFlags fs)   = toFStr "-FLAGS" $ fstrs fs
+          procStore (n, ps) = (maybe (toEnum n) read (lookup "UID" ps)
+                              ,maybe [] pflags (lookup "FLAG" ps))
+          pflags = either (const []) id .
+                     parse (between (char '(') (char ')')
+                                        (parseFlag `sepBy` space)) ""
 
 
 store :: Stream s => IMAPConnection s -> UID -> FlagsQuery -> IO ()
@@ -661,9 +758,10 @@ storeR :: Stream s => IMAPConnection s -> (UID, UID) -> FlagsQuery -> IO ()
 store conn i q       = storeFull conn (show i) q True >> return ()
 storeR conn (s, e) q = storeFull conn (show s++":"++show e) q True >> return ()
 -- storeResults is used without .SILENT, so that its response contains its result flags
-storeResults :: Stream s => IMAPConnection s -> UID -> FlagsQuery -> IO [(UID, [Flag])]
+storeResults :: Stream s => IMAPConnection s -> UID -> FlagsQuery -> IO [Flag]
 storeResultsR :: Stream s => IMAPConnection s -> (UID, UID) -> FlagsQuery -> IO [(UID, [Flag])]
-storeResults conn i q       = storeFull conn (show i) q False
+storeResults conn i q       =
+    storeFull conn (show i) q False >>= return . snd . head
 storeResultsR conn (s, e) q = storeFull conn (show s++":"++show e) q False
 
 copy :: Stream s => IMAPConnection s -> UID -> Mailbox -> IO ()
