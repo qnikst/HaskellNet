@@ -39,7 +39,6 @@ import Network
 
 import Control.Exception
 import Control.Monad (unless)
-import Control.Monad.Trans
 
 import Data.List (intersperse)
 import Data.Char (chr, ord)
