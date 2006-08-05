@@ -31,21 +31,26 @@ module HaskellNet.SMTP
     )
     where
 
-import HaskellNet.TCP
-import HaskellNet.Stream
+import HaskellNet.BSStream
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BSC
 import Network.BSD
 import Network
 
 import Control.Exception
-import Control.Monad
+import Control.Monad (unless)
+import Control.Monad.Trans
 
 import Data.List (intersperse)
+import Data.Char (chr, ord)
 
 import qualified Codec.Binary.Base64 as B64 (encode)
 
+import System.IO
+
 import Prelude hiding (catch)
 
-data (Stream a) => SMTPConnection a = SMTPC !a ![String]
+data (BSStream s) => SMTPConnection s = SMTPC !s ![ByteString]
 
 data AuthType = PLAIN_AUTH deriving (Show, Eq)
 
@@ -53,7 +58,7 @@ data Command = HELO String
              | EHLO String
              | MAIL String
              | RCPT String
-             | DATA String
+             | DATA ByteString
              | EXPN String
              | VRFY String
              | HELP String
@@ -113,7 +118,7 @@ codeToResponse 552 = ExceededStorage
 codeToResponse 553 = MailboxNotAllowed
 codeToResponse 554 = TransactionFailed
 
-crlf = "\r\n"
+crlf = BSC.pack "\r\n"
 
 isRight :: Either a b -> Bool
 isRight (Right _) = True
@@ -124,92 +129,87 @@ b64Encode = map (toEnum.fromEnum) . B64.encode . map (toEnum.fromEnum)
 -- | connecting SMTP server with the specified name and port number.
 connectSMTPPort :: String     -- ^ name of the server
                 -> PortNumber -- ^ port number
-                -> IO (SMTPConnection Connection)
-connectSMTPPort hostname port = openTCPPort hostname (fromEnum port) >>= connectStream
+                -> IO (SMTPConnection Handle)
+connectSMTPPort hostname port = connectTo hostname (PortNumber port) >>= connectStream
 
 -- | connecting SMTP server with the specified name and port 25.
 connectSMTP :: String     -- ^ name of the server
-            -> IO (SMTPConnection Connection)
+            -> IO (SMTPConnection Handle)
 connectSMTP = flip connectSMTPPort 25
 
 -- | create SMTPConnection from already connected Stream
-connectStream :: Stream a => a -> IO (SMTPConnection a)
-connectStream conn = 
-    do (code, msg) <- parseResponse conn
+connectStream :: BSStream s => s -> IO (SMTPConnection s)
+connectStream st = 
+    do (code, msg) <- parseResponse st
        unless (code == 220) $
-              do close conn
+              do bsClose st
                  fail "cannot connect to the server"
        senderHost <- getHostName
-       (code, msg) <- sendCommand (SMTPC conn []) (EHLO senderHost) 
+       (code, msg) <- sendCommand (SMTPC st []) (EHLO senderHost) 
        unless (code == 250) $
-              do (code, msg) <- sendCommand (SMTPC conn []) (HELO senderHost)
+              do (code, msg) <- sendCommand (SMTPC st []) (HELO senderHost)
                  unless (code == 250) $
-                        do close conn
+                        do bsClose st
                            fail "cannot connect to the server"
-       return (SMTPC conn (tail $ lines msg))
+       return (SMTPC st (tail $ BSC.lines msg))
 
-parseResponse :: Stream a => a -> IO (ReplyCode, String)
-parseResponse conn = do lst <- readLines
-                        return (read $ fst $ last lst, unlines $ map snd lst)
+parseResponse :: BSStream s => s -> IO (ReplyCode, ByteString)
+parseResponse st = do lst <- readLines
+                      return (read $ BSC.unpack $ fst $ last lst, BSC.unlines $ map snd lst)
     where readLines =
-              do l <- readLine conn
-                 unless (isRight l) $
-                        fail "cannot receive the server's response"
-                 case span (flip notElem " -") (either (\_ -> "") id l) of
-                   (code, '-':msg) -> fmap ((code, msg):) $ readLines
-                   (code, ' ':msg) -> return [(code, msg)]
+              do l <- bsGetLine st
+                 case f $ BSC.span (flip notElem " -") l of
+                   (code, '-', msg) -> fmap ((code, msg):) $ readLines
+                   (code, ' ', msg) -> return [(code, msg)]
+          f (code, msg) = (code, BSC.head msg, BSC.tail msg)
 
 
 -- | send a method to a server
-sendCommand :: Stream a => SMTPConnection a -> Command -> IO (ReplyCode, String)
+sendCommand :: BSStream s => SMTPConnection s -> Command -> IO (ReplyCode, ByteString)
 sendCommand (SMTPC conn _) (DATA dat) =
-    do resp <- writeBlock conn $ "DATA\r\n"
-       unless (isRight resp) $ fail "cannot send method DATA"
+    do resp <- bsPut conn $ BSC.pack "DATA\r\n"
        (code, msg) <- parseResponse conn
        unless (code == 354) $ fail "this server cannot accept any data."
-       mapM_ sendLine $ lines dat ++ ["."]
+       mapM_ sendLine $ BSC.lines dat ++ [BSC.pack "."]
        parseResponse conn
-    where sendLine l = do resp <- writeBlock conn (l ++ crlf)
-                          unless (isRight resp) $ fail "cannot send data."
+    where sendLine l = bsPut conn $ (BSC.append l crlf)
 sendCommand (SMTPC conn _) (AUTH PLAIN_AUTH username password) =
-    do resp <- writeBlock conn command
-       unless (isRight resp) $ fail "cannot send data."
+    do resp <- bsPut conn command
        parseResponse conn
-    where command = "AUTH PLAIN " ++ b64Encode (concat $ intersperse "\0" [username, username, password])
+    where command = BSC.pack $ "AUTH PLAIN " ++ b64Encode (concat $ intersperse "\0" [username, username, password])
 sendCommand (SMTPC conn _) meth =
-    do resp <- writeBlock conn command
-       unless (isRight resp) $ fail "cannot send data."
+    do resp <- bsPut conn $ BSC.append (BSC.pack command) crlf
        parseResponse conn
     where command = case meth of
-                      (HELO param) -> "HELO " ++ param ++ crlf
-                      (EHLO param) -> "EHLO " ++ param ++ crlf
-                      (MAIL param) -> "MAIL FROM:<" ++ param ++ ">" ++ crlf
-                      (RCPT param) -> "RCPT TO:<" ++ param ++ ">" ++ crlf
-                      (EXPN param) -> "EXPN " ++ param ++ crlf
-                      (VRFY param) -> "VRFY " ++ param ++ crlf
+                      (HELO param) -> "HELO " ++ param
+                      (EHLO param) -> "EHLO " ++ param
+                      (MAIL param) -> "MAIL FROM:<" ++ param ++ ">"
+                      (RCPT param) -> "RCPT TO:<" ++ param ++ ">"
+                      (EXPN param) -> "EXPN " ++ param
+                      (VRFY param) -> "VRFY " ++ param
                       (HELP msg)   -> if null msg
                                         then "HELP\r\n"
-                                        else "HELP " ++ msg ++ crlf
-                      NOOP         -> "NOOP\r\n"
-                      RSET         -> "RSET\r\n"
-                      QUIT          -> "QUIT\r\n"
+                                        else "HELP " ++ msg
+                      NOOP         -> "NOOP"
+                      RSET         -> "RSET"
+                      QUIT         -> "QUIT"
 
 -- | 
 -- close the connection.  This function send the QUIT method, so you
 -- do not have to QUIT method explicitly.
-closeSMTP :: Stream a => SMTPConnection a -> IO ()
+closeSMTP :: BSStream s => SMTPConnection s -> IO ()
 closeSMTP c@(SMTPC conn _) = do sendCommand c QUIT
-                                close conn
+                                bsClose conn
 
 
 -- | 
 -- sending a mail to a server. This is achieved by sendMessage.  If
 -- something is wrong, it raises an IOexception.
-sendMail :: Stream a =>
-            String   -- ^ sender mail
-         -> [String] -- ^ receivers
-         -> String   -- ^ data
-         -> SMTPConnection a
+sendMail :: BSStream s =>
+            String     -- ^ sender mail
+         -> [String]   -- ^ receivers
+         -> ByteString -- ^ data
+         -> SMTPConnection s
          -> IO ()
 sendMail sender receivers dat conn =
     catcher `handle` mainProc
@@ -224,18 +224,18 @@ sendMail sender receivers dat conn =
 -- | 
 -- doSMTPPort open a connection, and do an IO action with the
 -- connection, and then close it.
-doSMTPPort :: String -> PortNumber -> (SMTPConnection Connection -> IO a) -> IO a
+doSMTPPort :: String -> PortNumber -> (SMTPConnection Handle -> IO a) -> IO a
 doSMTPPort host port execution =
     bracket (connectSMTPPort host port) closeSMTP execution
 
 -- | 
 -- doSMTP is similar to doSMTPPort, except that it does not
 -- require port number but connects to the server with port 25.
-doSMTP :: String -> (SMTPConnection Connection -> IO a) -> IO a
+doSMTP :: String -> (SMTPConnection Handle -> IO a) -> IO a
 doSMTP host execution = doSMTPPort host 25 execution
 
 -- |
 -- doSMTPStream is similar to doSMTPPort, except that its argument is
 -- a Stream data instead of hostname and port number.
-doSMTPStream :: Stream a => a -> (SMTPConnection a -> IO b) -> IO b
+doSMTPStream :: BSStream s => s -> (SMTPConnection s -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
