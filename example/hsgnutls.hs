@@ -26,13 +26,18 @@ extendBuf sess@(TlsSession s buf) =
     do res <- mallocForeignPtrBytes 1024
        len <- withForeignPtr res (\p -> tlsRecv s p 1024)
        modifyIORef buf (flip BS.append $ BSB.fromForeignPtr res len)
-       unless (len <= 1024) $ extendBuf sess
+       return len
+
+doWhile cond execute =
+    do f <- cond
+       when f $ (execute >> doWhile cond execute)
+          
 
 instance BSStream (TlsSession t) where
 #if defined(__GLASGOW_HASKELL__)
     bsGetLine sess@(TlsSession s buf) =
-        do bufstr <- readIORef buf
-           when (BS.null bufstr) $ extendBuf sess
+        do doWhile (readIORef buf >>= return . BS.notElem '\n')
+                       (extendBuf sess)
            bufstr' <- readIORef buf
            let (line, rest) =  BS.span (/='\n') bufstr'
            writeIORef buf $ BS.tail rest
@@ -41,13 +46,14 @@ instance BSStream (TlsSession t) where
     bsGetNonBlocking = bsGet
 #endif
     bsGetContents sess@(TlsSession s buf) =
-        do extendBuf sess
+        do doWhile (readIORef buf >>= return . (/=0) . BS.length)
+                       (extendBuf sess)
            bufstr <- readIORef buf
            writeIORef buf BS.empty
            return bufstr
     bsGet sess@(TlsSession s buf) len =
-        do bufstr <- readIORef buf
-           when (BS.length bufstr > len) $ extendBuf sess
+        do doWhile (readIORef buf >>= return . (<len) . BS.length)
+                   (extendBuf sess)
            bufstr' <- readIORef buf
            let (r, bufstr'') = BS.splitAt len bufstr'
            writeIORef buf bufstr''
