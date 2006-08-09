@@ -333,35 +333,30 @@ statusResponse =
                  return (cons, num)
 
 
-fetchResponse :: BSStream s => ByteString -> s -> WriterT [ByteString] IO [(Int, [(String, ByteString)])]
-fetchResponse tag s =
+fetchResponse :: BSStream s => s -> WriterT [ByteString] IO [(Int, [(String, ByteString)])]
+fetchResponse s =
     do l <- liftIO $ bsGetLine s
-       liftIO $ putStr "fetchResponse: "
-       liftIO $ print l
-       if BS.null l || (BS.head l == '*' && not (isFetch l))
-          then tell [l] >> fetchResponse tag s
-          else if not (BS.null l) && (BS.head l /= '*') && tagged l
-               then tell [l] >> return []
-               else fetchMain $ parse singleLine "" $ BS.unpack l
+       case () of
+         _ | BS.null l -> return []
+           | BS.head l /= '*' -> tell [l] >> return []
+           | not (isFetch l)  -> tell [l] >> fetchResponse s
+           | otherwise        -> fetchMain $ parse singleLine "" $ BS.unpack l
     where isFetch l = BS.pack "FETCH" == (BS.take 5 $ BS.dropWhile isSpace $ BS.dropWhile isDigit $ BS.dropWhile isSpace $ BS.tail l)
-          tagged l =
-              BS.length l >= BS.length tag && (and $ BS.zipWith (==) tag l)
-          fetchMain (Left _) = liftIO (putStrLn "fetchMain1") >> fetchResponse tag s
+          fetchMain (Left _) = fetchResponse s
           fetchMain (Right (n, ps, Nothing)) =
-              liftIO (putStrLn "fetchMain2") >> (fmap ((n, ps):) $ fetchResponse tag s)
+              (fmap ((n, ps):) $ fetchResponse s)
           fetchMain (Right (n, ps, Just len)) =
-              do liftIO $ putStrLn "fetchMain3"
-                 v <- liftIO $ bsGet s len
+              do v <- liftIO $ bsGet s len
                  let ps' = init ps ++ [(fst $ last ps, v)]
                  l' <- liftIO $ bsGetLine s
                  v <- fetchMain (parse (getPairs n) "" $ BS.unpack l')
                  return $ (n, ps' ++ snd (head v)) : tail v
-          singleLine = do spaces
+          singleLine = do char '*' >> spaces
                           n <- fmap read $ many1 digit
                           spaces >> string "FETCH" >> spaces >> char '('
                           getPairs n
-          getPairs n = (getPair `sepBy` spaces) >>= \ps ->
-                       if isLeft $ snd $ last ps
+          getPairs n = (try getPair `sepBy` many1 (char ' ')) >>= \ps ->
+                       if null ps || (isLeft $ snd $ last ps)
                        then do char ')' >> crP
                                return (n, map fixEither ps, Nothing) 
                        else do crP
@@ -374,7 +369,7 @@ fetchResponse tag s =
                          s <- anyChar `manyTill` char ')'
                          return $ Left $ BS.pack $ '(':s++")"
                   <|> fmap (Right . read) (between (char '{') (char '}') (many1 digit))
-                  <|> fmap (Left . BS.pack) (anyChar `manyTill` space)
+                  <|> fmap (Left . BS.pack) (anyChar `manyTill` lookAhead (char ' '))
 
 searchResponse :: CharParser st [UID]
 searchResponse =
@@ -704,9 +699,9 @@ fetchByStringR conn (s, e) command =
 
 fetchCommand conn@(IMAPC s mbox nr) command proc =
     do num <- readIORef nr
-       bsPut s $ BS.pack command
+       bsPut s $ BS.pack $ (show6 num) ++ " " ++ command ++ crlf
        modifyIORef nr (+1)
-       (fetched, others) <- runWriterT $ fetchResponse (BS.pack (show6 num)) s
+       (fetched, others) <- runWriterT $ fetchResponse s
        mboxUpdateResponses mbox $ map BS.unpack $ init others
        case parse (responseDone (show6 num)) "" (BS.unpack $ last others) of
          Left _    -> fail "illegal server response"
