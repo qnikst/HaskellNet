@@ -64,3 +64,8 @@ login = plain
 cramMD5 :: String -> UserName -> Password -> String
 cramMD5 challenge user pass =
     b64Encode (user ++ " " ++ showOctet (hmacMD5 challenge pass))
+
+auth :: AuthType -> String -> UserName -> Password -> String
+auth PLAIN    _ u p = plain u p
+auth LOGIN    _ u p = login u p
+auth CRAM_MD5 c u p = cramMD5 c u p

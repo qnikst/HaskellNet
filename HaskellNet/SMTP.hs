@@ -43,15 +43,13 @@ import Control.Monad (unless)
 import Data.List (intersperse)
 import Data.Char (chr, ord)
 
-import qualified Codec.Binary.Base64 as B64 (encode)
+import HaskellNet.Auth
 
 import System.IO
 
 import Prelude hiding (catch)
 
 data (BSStream s) => SMTPConnection s = SMTPC !s ![ByteString]
-
-data AuthType = PLAIN_AUTH deriving (Show, Eq)
 
 data Command = HELO String
              | EHLO String
@@ -61,7 +59,7 @@ data Command = HELO String
              | EXPN String
              | VRFY String
              | HELP String
-             | AUTH AuthType String String 
+             | AUTH AuthType UserName Password 
              | NOOP
              | RSET
              | QUIT
@@ -154,30 +152,34 @@ connectStream st =
 
 parseResponse :: BSStream s => s -> IO (ReplyCode, ByteString)
 parseResponse st = do lst <- readLines
-                      return (read $ BSC.unpack $ fst $ last lst, BSC.unlines $ map snd lst)
+                      return (fst $ last lst, BSC.unlines $ map snd lst)
     where readLines =
-              do l <- bsGetLine st
-                 case f $ BSC.span (flip notElem " -") l of
-                   (code, '-', msg) -> fmap ((code, msg):) $ readLines
-                   (code, ' ', msg) -> return [(code, msg)]
-          f (code, msg) = (code, BSC.head msg, BSC.tail msg)
+              do ls <- bsGetLines st
+                 return $ map (f . BSC.span (flip notElem " -")) ls
+          f (code, msg) = (read $ BSC.unpack $ code
+                          ,if BSC.length msg > 0 then BSC.tail msg else msg)
 
 
 -- | send a method to a server
 sendCommand :: BSStream s => SMTPConnection s -> Command -> IO (ReplyCode, ByteString)
 sendCommand (SMTPC conn _) (DATA dat) =
-    do resp <- bsPut conn $ BSC.pack "DATA\r\n"
+    do bsPut conn $ BSC.pack "DATA\r\n"
        (code, msg) <- parseResponse conn
        unless (code == 354) $ fail "this server cannot accept any data."
        mapM_ sendLine $ BSC.lines dat ++ [BSC.pack "."]
        parseResponse conn
     where sendLine l = bsPut conn $ (BSC.append l crlf)
-sendCommand (SMTPC conn _) (AUTH PLAIN_AUTH username password) =
-    do resp <- bsPut conn command
+sendCommand (SMTPC conn _) (AUTH at username password) =
+    do bsPut conn command1
+       bsPut conn crlf
+       (code, msg) <- parseResponse conn
+       unless (code == 334) $ fail "authentication failed."
+       bsPut conn $ auth at msg username password
+       bsPut conn crlf
        parseResponse conn
-    where command = BSC.pack $ "AUTH PLAIN " ++ b64Encode (concat $ intersperse "\0" [username, username, password])
+    where command = BSC.pack $ unwords ["AUTH", show at]
 sendCommand (SMTPC conn _) meth =
-    do resp <- bsPut conn $ BSC.append (BSC.pack command) crlf
+    do bsPut conn $ BSC.append (BSC.pack command) crlf
        parseResponse conn
     where command = case meth of
                       (HELO param) -> "HELO " ++ param
