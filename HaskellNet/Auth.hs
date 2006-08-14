@@ -27,7 +27,14 @@ type Password = String
 
 data AuthType = PLAIN
               | LOGIN
-              | CRAM_MD5 String
+              | CRAM_MD5
+
+instance Show AuthType where
+    showPrec d at = showParen (d>app_prec) $ showString $ showMain at
+        where app_prec = 10
+              showMain PLAIN    = "PLAIN"
+              showMain LOGIN    = "LOGIN"
+              showMain CRAM_MD5 = "CRAM-MD5"
 
 b64Encode :: String -> String
 b64Encode = map (toEnum.fromEnum) . B64.encode . map (toEnum.fromEnum)
@@ -57,8 +64,3 @@ login = plain
 cramMD5 :: String -> UserName -> Password -> String
 cramMD5 challenge user pass =
     b64Encode (user ++ " " ++ showOctet (hmacMD5 challenge pass))
-
-auth :: AuthType -> UserName -> Password -> String
-auth PLAIN user pass = plain user pass
-auth LOGIN user pass = login user pass
-auth (CRAM_MD5 c) user pass = cramMD5 c user pass
