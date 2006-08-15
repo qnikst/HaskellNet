@@ -166,10 +166,12 @@ Parser pMime =
                                        (BS.pack $ unlines body)
 
 ----------------------------------------------------------------------
+-- RFC 2047 Mime Header Extentions Parser
+-- 
 
 type CharSet = String
 data RFC2047Derivs =
-    RFC2047Derivs { dvMimeStr :: Result RFC2047Derivs [(CharSet, String)]
+    RFC2047Derivs { dvHeaderExts :: Result RFC2047Derivs [(CharSet, String)]
                   , hdvChar :: Result RFC2047Derivs Char
                   , hdvPos :: Pos
                   }
@@ -178,25 +180,25 @@ instance Derivs RFC2047Derivs where
     dvChar = hdvChar
     dvPos  = hdvPos
 
-mimeHeader :: ByteString -> [(CharSet, String)]
-mimeHeader s = case dvMimeStr (p (Pos "<input>" 1 1) s) of
+headerExts :: ByteString -> [(CharSet, String)]
+headerExts s = case dvHeaderExts (p (Pos "<input>" 1 1) s) of
                  Parsed v d' e' -> v
                  NoParse e      -> error (show e)
     where p pos s = d
               where d = RFC2047Derivs mstr chr pos
-                    mstr = pMimeStr d
+                    mstr = pHeaderExts d
                     chr  = if BS.null s
                            then NoParse (eofError d)
                            else let (c, s') = (BS.head s, BS.tail s)
                                 in Parsed c (p (nextPos pos c) s')
                                        (nullError d)
 
-mimeHeader' :: String -> [(CharSet, String)]
-mimeHeader' = mimeHeader . BS.pack
+headerExts' :: String -> [(CharSet, String)]
+headerExts' = headerExts . BS.pack
 
 
-pMimeStr :: RFC2047Derivs -> Result RFC2047Derivs [(CharSet, String)]
-Parser pMimeStr = many $ getRFC2047 <|> normalStr
+pHeaderExts :: RFC2047Derivs -> Result RFC2047Derivs [(CharSet, String)]
+Parser pHeaderExts = (getRFC2047 <|> normalStr) `sepBy` (many $ oneOf " \t")
     where getRFC2047 =
               do string "=?"
                  charset <- anyChar `manyTill` char '?'
@@ -206,8 +208,9 @@ Parser pMimeStr = many $ getRFC2047 <|> normalStr
                          then decodeB64
                          else decodeQuoted
                  return (charset, body)
+          normalStr :: Derivs d => Parser d (String, String)
           normalStr =
-              do body <- anyChar `manyTill` char '='
+              do body <- many1 $ noneOf " \t"
                  return ("", body)
 
 decodeQuoted :: Derivs d => Parser d String
@@ -227,7 +230,6 @@ decodeQuoted = do cs <- many (quotedChar <|> noneOf "?")
 
 decodeB64 :: Derivs d => Parser d String
 decodeB64 = do bodies <- many pQuartet
-               optional (char '=' >> optional (char '='))
                string "?="
                return $ concat bodies
     where pQuartet = do a <- b64Chars
@@ -235,6 +237,15 @@ decodeB64 = do bodies <- many pQuartet
                         c <- b64Chars
                         d <- b64Chars
                         return $ decodeChars (a,b,c,d)
+                 <|> do a <- b64Chars
+                        b <- b64Chars
+                        c <- b64Chars
+                        char '='
+                        return $ init $ decodeChars (a, b, c, 0)
+                 <|> do a <- b64Chars
+                        b <- b64Chars
+                        string "=="
+                        return [head $ decodeChars (a, b, 0, 0)]
           b64Chars =
               do many $ noneOf (['a'..'z']++['A'..'Z']++['0'..'9']++"+/?=")
                  choice [ do { c <- oneOf ['a'..'z']
