@@ -15,9 +15,9 @@ module HaskellNet.IMAP
 where
 
 import Network
--- import HaskellNet.Stream hiding (close)
--- import qualified HaskellNet.Stream as S (close)
 import HaskellNet.BSStream
+import HaskellNet.Auth hiding (auth)
+import qualified HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
@@ -33,6 +33,7 @@ import Data.IORef
 import Data.Maybe
 import Data.Word
 import Data.List
+import Data.Char
 
 import Text.Packrat.IMAPParsers
 import Text.Packrat.Parse (Result)
@@ -192,6 +193,10 @@ mboxUpdate mbox (MboxUpdate exists recent) =
     where e = fromJust exists
           r = fromJust recent
 
+----------------------------------------------------------------------
+-- IMAP commands
+-- 
+
 noop :: BSStream s => IMAPConnection s -> IO ()
 noop conn@(IMAPC s mbox _) = sendCommand conn "NOOP" pNone
 
@@ -202,7 +207,7 @@ logout :: BSStream s => IMAPConnection s -> IO ()
 logout conn@(IMAPC s _ _) = do sendCommand conn "LOGOUT" pNone
                                bsClose s
 
-login :: BSStream s => IMAPConnection s -> String -> String -> IO ()
+login :: BSStream s => IMAPConnection s -> UserName -> Password -> IO ()
 login conn user pass = sendCommand conn ("LOGIN " ++ user ++ " " ++ pass) pNone
 
 select, examine, create, delete :: BSStream s =>
@@ -210,6 +215,39 @@ select, examine, create, delete :: BSStream s =>
 _select cmd conn@(IMAPC s mbox _) mboxName =
     do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
        writeIORef mbox (mbox' { _mailbox = mboxName })
+
+authenticate :: BSStream s => IMAPConnection s -> AuthType -> UserName -> Password -> IO ()
+authenticate conn@(IMAPC s mbox nr) LOGIN user pass =
+    do num <- readIORef nr
+       sendCommand' conn "AUTHENTICATE LOGIN\r\n"
+       bsPut s $ BS.pack (userB64 ++ "\r\n")
+       bsGetContents s
+       bsPut s $ BS.pack (passB64 ++ "\r\n")
+       buf <- bsGetContents s
+       let (resp, mboxUp, value) = eval pNone (show6 num) buf
+       case resp of
+         OK _ _        -> do mboxUpdate mbox $ mboxUp
+                             return value
+         NO _ msg      -> fail ("NO: " ++ msg)
+         BAD _ msg     -> fail ("BAD: " ++ msg)
+         PREAUTH _ msg -> fail ("preauth: " ++ msg)
+    where (userB64, ' ':passB64) = break isSpace $ A.login user pass
+authenticate conn@(IMAPC s mbox nr) at user pass =
+    do num <- readIORef nr
+       c <- sendCommand' conn $ "AUTHENTICATE " ++ show at ++ "\r\n"
+       let challenge =
+               if BS.take 2 c == BS.pack "+ "
+               then b64Decode $ BS.unpack $ head $ dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
+               else ""
+       bsPut s $ BS.pack $ A.auth at challenge user pass ++ "\r\n"
+       buf <- bsGetContents s
+       let (resp, mboxUp, value) = eval pNone (show6 num) buf
+       case resp of
+         OK _ _        -> do mboxUpdate mbox $ mboxUp
+                             return value
+         NO _ msg      -> fail ("NO: " ++ msg)
+         BAD _ msg     -> fail ("BAD: " ++ msg)
+         PREAUTH _ msg -> fail ("preauth: " ++ msg)
 
 select = _select "SELECT "
 examine = _select "EXAMINE "

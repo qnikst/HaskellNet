@@ -16,7 +16,7 @@ where
 
 import Data.Digest.MD5
 import Codec.Utils
-import qualified Codec.Binary.Base64 as B64 (encode)
+import qualified Codec.Binary.Base64 as B64 (encode, decode)
 
 import Data.List
 import Data.Bits
@@ -28,9 +28,10 @@ type Password = String
 data AuthType = PLAIN
               | LOGIN
               | CRAM_MD5
+                deriving Eq
 
 instance Show AuthType where
-    showPrec d at = showParen (d>app_prec) $ showString $ showMain at
+    showsPrec d at = showParen (d>app_prec) $ showString $ showMain at
         where app_prec = 10
               showMain PLAIN    = "PLAIN"
               showMain LOGIN    = "LOGIN"
@@ -38,6 +39,9 @@ instance Show AuthType where
 
 b64Encode :: String -> String
 b64Encode = map (toEnum.fromEnum) . B64.encode . map (toEnum.fromEnum)
+
+b64Decode :: String -> String
+b64Decode = map (toEnum.fromEnum) . B64.decode . map (toEnum.fromEnum)
 
 showOctet :: [Octet] -> String
 showOctet = concat . map hexChars
@@ -59,7 +63,7 @@ plain :: UserName -> Password -> String
 plain user pass = b64Encode $ concat $ intersperse "\0" [user, user, pass]
 
 login :: UserName -> Password -> String
-login = plain
+login user pass = unwords [b64Encode user, b64Encode pass]
 
 cramMD5 :: String -> UserName -> Password -> String
 cramMD5 challenge user pass =

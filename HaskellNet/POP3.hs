@@ -26,6 +26,7 @@ module HaskellNet.POP3
     , closePop3
     , user
     , pass
+    , userPass
     , apop
     , auth
     , stat
@@ -46,9 +47,11 @@ module HaskellNet.POP3
 
 import HaskellNet.BSStream
 import Network
+import HaskellNet.Auth hiding (auth, login)
+import qualified HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BSC
+import qualified Data.ByteString.Char8 as BS
 import Data.Digest.MD5
 import Numeric (showHex)
 
@@ -87,7 +90,7 @@ crlf = "\r\n"
 hexDigest = concatMap (flip showHex "") . hash . map (toEnum.fromEnum) 
 
 strip :: ByteString -> ByteString
-strip s = head $ dropWhile (isSpace . BSC.last) $ BSC.inits $ BSC.dropWhile isSpace s
+strip s = head $ dropWhile (isSpace . BS.last) $ BS.inits $ BS.dropWhile isSpace s
 
 -- |
 -- connecting to the pop3 server specified by the hostname and port number
@@ -105,29 +108,29 @@ connectStream :: BSStream s => s -> IO (POP3Connection s)
 connectStream st =
     do (resp, msg) <- response st
        when (resp == Err) $ fail "cannot connect"
-       let code = last $ BSC.words msg
-       if BSC.head code == '<' && BSC.last code == '>'
+       let code = last $ BS.words msg
+       if BS.head code == '<' && BS.last code == '>'
          then return $ POP3C st code
-         else return $ POP3C st BSC.empty
+         else return $ POP3C st BS.empty
 
 
 response :: BSStream s => s -> IO (Response, ByteString)
 response st =
     do reply <- fmap strip $ bsGetLine st
-       if reply `BSC.isPrefixOf` (BSC.pack "+OK ")
-         then return (Ok, BSC.drop 4 reply)
-         else return (Err, BSC.drop 5 reply)
+       if reply `BS.isPrefixOf` (BS.pack "+OK ")
+         then return (Ok, BS.drop 4 reply)
+         else return (Err, BS.drop 5 reply)
 
 -- | parse mutiline of response
 responseML :: BSStream s => s -> IO (Response, ByteString)
 responseML st =
     do reply <- fmap strip $ bsGetLine st
-       if reply `BSC.isPrefixOf` (BSC.pack "+OK ")
+       if reply `BS.isPrefixOf` (BS.pack "+OK ")
          then do rest <- getRest
-                 return (Ok, BSC.unlines (BSC.drop 4 reply : rest))
-         else return (Err, BSC.drop 5 reply)
+                 return (Ok, BS.unlines (BS.drop 4 reply : rest))
+         else return (Err, BS.drop 5 reply)
     where getRest = do l <- fmap strip $ bsGetLine st
-                       if l == BSC.singleton '.'
+                       if l == BS.singleton '.'
                          then return []
                          else fmap (l:) getRest
 
@@ -135,15 +138,15 @@ responseML st =
 -- action is too generic. Use more specific actions
 sendCommand :: BSStream s => POP3Connection s -> Command -> IO (Response, ByteString)
 sendCommand (POP3C conn msg_id) (LIST Nothing) =
-    bsPut conn (BSC.pack "LIST\r\n") >> responseML conn
+    bsPut conn (BS.pack "LIST\r\n") >> responseML conn
 sendCommand (POP3C conn msg_id) (UIDL Nothing) =
-    bsPut conn (BSC.pack "UIDL\r\n") >> responseML conn
+    bsPut conn (BS.pack "UIDL\r\n") >> responseML conn
 sendCommand (POP3C conn msg_id) (RETR msg) =
-    bsPut conn (BSC.pack $ "RETR " ++ show msg ++ crlf) >> responseML conn
+    bsPut conn (BS.pack $ "RETR " ++ show msg ++ crlf) >> responseML conn
 sendCommand (POP3C conn msg_id) (TOP msg n) =
-    bsPut conn (BSC.pack $ "TOP " ++ show msg ++ " " ++ show n ++ crlf) >> responseML conn
+    bsPut conn (BS.pack $ "TOP " ++ show msg ++ " " ++ show n ++ crlf) >> responseML conn
 sendCommand (POP3C conn msg_id) command =
-    bsPut conn (BSC.pack $ commandStr ++ crlf) >> response conn
+    bsPut conn (BS.pack $ commandStr ++ crlf) >> response conn
     where commandStr = case command of
                          (USER name) -> "USER " ++ name
                          (PASS pass) -> "PASS " ++ pass
@@ -164,8 +167,34 @@ pass :: BSStream s => POP3Connection s -> String -> IO ()
 pass conn pwd = do (resp, _) <- sendCommand conn (PASS pwd)
                    when (resp == Err) $ fail "cannot send password"
 
-auth :: BSStream s => POP3Connection s -> String -> String -> IO ()
-auth conn name pwd = user conn name >> pass conn pwd
+userPass :: BSStream s => POP3Connection s -> UserName -> Password -> IO ()
+userPass conn name pwd = user conn name >> pass conn pwd
+
+auth :: BSStream s => POP3Connection s -> AuthType -> UserName -> Password -> IO ()
+auth (POP3C conn _) LOGIN user pass =
+    do bsPut conn $ BS.pack "AUTH LOGIN\r\n"
+       bsGetContents conn
+       bsPut conn $ BS.pack (userB64++crlf)
+       bsGetContents conn
+       bsPut conn $ BS.pack (passB64++crlf)
+       (resp, msg) <- response conn
+       unless (resp == Ok) $ fail ("authentication failed: " ++ BS.unpack msg)
+    where (userB64, ' ':passB64) = break isSpace $ A.login user pass
+auth (POP3C conn _) at user pass =
+    do bsPut conn $ BS.pack authCmd
+       challenge <- getChallenge conn
+       bsPut conn $ BS.pack $ (A.auth at challenge user pass ++ crlf)
+       (resp, msg) <- response conn
+       unless (resp == Ok) $ fail ("authentication failed: " ++ BS.unpack msg)
+    where authCmd = unwords ["AUTH", show at] ++ crlf
+          getChallenge conn =
+              do c <- bsGetContents conn
+                 if BS.take 2 c == BS.pack "+ "
+                   then let c' = BS.drop 2 c
+                        in return $ b64Decode $ BS.unpack $ head $ dropWhile (isSpace . BS.last) $ BS.inits c'
+                   else return ""
+
+             
 
 apop :: BSStream s => POP3Connection s -> String -> String -> IO ()
 apop conn name pwd = do (resp, _) <- sendCommand conn (APOP name pwd)
@@ -174,8 +203,8 @@ apop conn name pwd = do (resp, _) <- sendCommand conn (APOP name pwd)
 stat :: BSStream s => POP3Connection s -> IO (Int, Int)
 stat conn = do (resp, msg) <- sendCommand conn STAT
                when (resp == Err) $ fail "cannot get stat info"
-               let (nn, mm) = BSC.span (/=' ') msg
-               return (read $ BSC.unpack nn, read $ BSC.unpack $ BSC.tail mm)
+               let (nn, mm) = BS.span (/=' ') msg
+               return (read $ BS.unpack nn, read $ BS.unpack $ BS.tail mm)
 
 dele :: BSStream s => POP3Connection s -> Int -> IO ()
 dele conn n = do (resp, _) <- sendCommand conn (DELE n)
@@ -184,12 +213,12 @@ dele conn n = do (resp, _) <- sendCommand conn (DELE n)
 retr :: BSStream s => POP3Connection s -> Int -> IO ByteString
 retr conn n = do (resp, msg) <- sendCommand conn (RETR n)
                  when (resp == Err) $ fail "cannot retrieve"
-                 return $ BSC.tail $ BSC.dropWhile (/='\n') msg
+                 return $ BS.tail $ BS.dropWhile (/='\n') msg
 
 top :: BSStream s => POP3Connection s -> Int -> Int -> IO ByteString
 top conn n m = do (resp, msg) <- sendCommand conn (TOP n m)
                   when (resp == Err) $ fail "cannot retrieve"
-                  return $ BSC.tail $ BSC.dropWhile (/='\n') msg
+                  return $ BS.tail $ BS.dropWhile (/='\n') msg
 
 rset :: BSStream s => POP3Connection s -> IO ()
 rset conn = do (resp, _) <- sendCommand conn RSET
@@ -198,26 +227,26 @@ rset conn = do (resp, _) <- sendCommand conn RSET
 allList :: BSStream s => POP3Connection s -> IO [(Int, Int)]
 allList conn = do (resp, lst) <- sendCommand conn (LIST Nothing)
                   when (resp == Err) $ fail "cannot retrieve the list"
-                  return $ map f $ tail $ BSC.lines lst
-    where f s = let (n1, n2) = BSC.span (/=' ') s
-                in (read $ BSC.unpack n1, read $ BSC.unpack $ BSC.tail n2)
+                  return $ map f $ tail $ BS.lines lst
+    where f s = let (n1, n2) = BS.span (/=' ') s
+                in (read $ BS.unpack n1, read $ BS.unpack $ BS.tail n2)
 
 list :: BSStream s => POP3Connection s -> Int -> IO Int
 list conn n = do (resp, lst) <- sendCommand conn (LIST (Just n))
                  when (resp == Err) $ fail "cannot retrieve the list"
-                 let (_, n2) = BSC.span (/=' ') lst
-                 return $ read $ BSC.unpack $ BSC.tail n2
+                 let (_, n2) = BS.span (/=' ') lst
+                 return $ read $ BS.unpack $ BS.tail n2
 
 allUIDLs :: BSStream s => POP3Connection s -> IO [(Int, ByteString)]
 allUIDLs conn = do (resp, lst) <- sendCommand conn (UIDL Nothing)
                    when (resp == Err) $ fail "cannot retrieve the uidl list"
-                   return $ map f $ tail $ BSC.lines lst
-    where f s = let (n1, n2) = BSC.span (/=' ') s in (read $ BSC.unpack n1, n2)
+                   return $ map f $ tail $ BS.lines lst
+    where f s = let (n1, n2) = BS.span (/=' ') s in (read $ BS.unpack n1, n2)
 
 uidl :: BSStream s => POP3Connection s -> Int -> IO ByteString
 uidl conn n = do (resp, msg) <- sendCommand conn (UIDL (Just n))
                  when (resp == Err) $ fail "cannot retrieve the uidl data"
-                 return $ BSC.tail $ BSC.dropWhile (/=' ') msg
+                 return $ BS.tail $ BS.dropWhile (/=' ') msg
 
 closePop3 :: BSStream s => POP3Connection s -> IO ()
 closePop3 c@(POP3C conn _) = do sendCommand c QUIT

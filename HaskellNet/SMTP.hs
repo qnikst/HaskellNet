@@ -33,7 +33,7 @@ module HaskellNet.SMTP
 
 import HaskellNet.BSStream
 import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BSC
+import qualified Data.ByteString.Char8 as BS
 import Network.BSD
 import Network
 
@@ -41,7 +41,7 @@ import Control.Exception
 import Control.Monad (unless)
 
 import Data.List (intersperse)
-import Data.Char (chr, ord)
+import Data.Char (chr, ord, isSpace)
 
 import HaskellNet.Auth
 
@@ -115,13 +115,11 @@ codeToResponse 552 = ExceededStorage
 codeToResponse 553 = MailboxNotAllowed
 codeToResponse 554 = TransactionFailed
 
-crlf = BSC.pack "\r\n"
+crlf = BS.pack "\r\n"
 
 isRight :: Either a b -> Bool
 isRight (Right _) = True
 isRight _         = False
-
-b64Encode = map (toEnum.fromEnum) . B64.encode . map (toEnum.fromEnum)
 
 -- | connecting SMTP server with the specified name and port number.
 connectSMTPPort :: String     -- ^ name of the server
@@ -148,38 +146,48 @@ connectStream st =
                  unless (code == 250) $
                         do bsClose st
                            fail "cannot connect to the server"
-       return (SMTPC st (tail $ BSC.lines msg))
+       return (SMTPC st (tail $ BS.lines msg))
 
 parseResponse :: BSStream s => s -> IO (ReplyCode, ByteString)
 parseResponse st = do lst <- readLines
-                      return (fst $ last lst, BSC.unlines $ map snd lst)
+                      return (fst $ last lst, BS.unlines $ map snd lst)
     where readLines =
               do ls <- bsGetLines st
-                 return $ map (f . BSC.span (flip notElem " -")) ls
-          f (code, msg) = (read $ BSC.unpack $ code
-                          ,if BSC.length msg > 0 then BSC.tail msg else msg)
+                 return $ map (f . BS.span (flip notElem " -")) ls
+          f (code, msg) = (read $ BS.unpack $ code
+                          ,if BS.length msg > 0 then BS.tail msg else msg)
 
 
 -- | send a method to a server
 sendCommand :: BSStream s => SMTPConnection s -> Command -> IO (ReplyCode, ByteString)
 sendCommand (SMTPC conn _) (DATA dat) =
-    do bsPut conn $ BSC.pack "DATA\r\n"
+    do bsPut conn $ BS.pack "DATA\r\n"
        (code, msg) <- parseResponse conn
        unless (code == 354) $ fail "this server cannot accept any data."
-       mapM_ sendLine $ BSC.lines dat ++ [BSC.pack "."]
+       mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]
        parseResponse conn
-    where sendLine l = bsPut conn $ (BSC.append l crlf)
-sendCommand (SMTPC conn _) (AUTH at username password) =
-    do bsPut conn command1
+    where sendLine l = bsPut conn $ (BS.append l crlf)
+sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
+    do bsPut conn command
+       (code, msg) <- parseResponse conn
+       bsPut conn $ BS.pack userB64
        bsPut conn crlf
        (code, msg) <- parseResponse conn
-       unless (code == 334) $ fail "authentication failed."
-       bsPut conn $ auth at msg username password
+       bsPut conn $ BS.pack passB64
        bsPut conn crlf
        parseResponse conn
-    where command = BSC.pack $ unwords ["AUTH", show at]
+    where command = BS.pack $ "AUTH LOGIN\r\n"
+          (userB64, ' ':passB64) = break isSpace $ login username password
+sendCommand (SMTPC conn _) (AUTH at username password) =
+    do bsPut conn command >> bsPut conn crlf
+       (code, msg) <- parseResponse conn
+       unless (code == 334) $ fail "authentication failed."
+       bsPut conn $ BS.pack $ auth at (BS.unpack msg) username password
+       bsPut conn crlf
+       parseResponse conn
+    where command = BS.pack $ unwords ["AUTH", show at]
 sendCommand (SMTPC conn _) meth =
-    do bsPut conn $ BSC.append (BSC.pack command) crlf
+    do bsPut conn $ BS.append (BS.pack command) crlf
        parseResponse conn
     where command = case meth of
                       (HELO param) -> "HELO " ++ param
