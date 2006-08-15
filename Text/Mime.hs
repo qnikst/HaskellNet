@@ -19,10 +19,16 @@ import Text.Packrat.Pos
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 
+import qualified Codec.Binary.Base64 as B64 (encode, decode)
+import Data.Digest.MD5 (hash)
+
 import Data.Maybe
 import Data.Char
 import Data.List
 import Data.Bits
+import Data.Array
+
+import qualified Text.PrettyPrint.HughesPJ as PP
 
 data Mime = SinglePart [Header] ByteString
           | MultiPart [Header] [Mime]
@@ -263,4 +269,72 @@ decodeB64 = do bodies <- many pQuartet
                       , n             .&. 0xff]
               where n = a `shiftL` 18 .|. b `shiftL` 12 .|. c `shiftL` 6 .|. d
 
+
+----------------------------------------------------------------------
+-- Mime Documents Pretty printer
+--
+
+showHeader' :: Header -> PP.Doc
+showHeader' (field, value) =
+    (PP.text (capital field) PP.<> PP.char ':') PP.<+>
+      PP.fsep (map PP.text (words value))
+
+showHeader :: CharSet -> Header -> PP.Doc
+showHeader charset (field, value) =
+    (PP.text (capital field) PP.<> PP.char ':') PP.<+>
+      (PP.fsep $ map (PP.text . prepB64) $ separate value)
+    where separate s | length s < 76 - length field = [s]
+                     | isJust (find isSpace s)       =
+                         concatMap separate $ words s
+                     | otherwise                     =
+                         let (s', s'') = splitAt (76 - length field) s
+                         in s' : separate s''
+          prepB64 s | isJust $ find (not.isPrint) s =
+                        "=?" ++ charset ++ "?b?" ++ b64Encode s ++ "?="
+                    | otherwise = s
+
+capital :: String -> String
+capital "" = ""
+capital (c:cs) | isAlpha c = toUpper c : inner cs
+               | otherwise = c : capital cs
+    where inner "" = ""
+          inner (c:cs) | isAlpha c = c : inner cs
+                       | otherwise = c : capital cs
+
+b64Encode :: String -> String
+b64Encode = B64.encode . map (toEnum.ord)
+
+showMessage :: CharSet -> Message -> PP.Doc
+showMessage charset (hdrs, body) =
+    PP.vcat ((map (showHeader charset) hdrs) ++
+               [ PP.empty, PP.text (BS.unpack body)])
+
+showMime :: CharSet -> Mime -> PP.Doc
+showMime charset (SinglePart hdrs body) =
+    PP.vcat ((map (showHeader charset) hdrs) ++
+               [ PP.empty, PP.text (BS.unpack body)])
+showMime charset (MultiPart hdrs bodies)
+    | isJust $ lookup "content-type" hdrs =
+      PP.vcat $ map (showHeader charset) hdrs ++
+            (PP.empty : mixture boundary (map (showMime charset) bodies))
+    | otherwise =
+        PP.vcat $ map (showHeader charset) (hdrs++[newHeader]) ++
+              (PP.empty : mixture newBoundary
+                     (map (showMime charset) bodies))
+    where boundary = let s = fromJust $ lookup "content-type" hdrs
+                         s' = drop 9 $ head $
+                                 dropWhile ((/="boundary=") . (take 9))
+                                               (tails s)
+                     in if head s' == '"'
+                        then takeWhile (/='"') $ tail s'
+                        else takeWhile isAlphaNum s'
+          newBoundary = md5Hash $ concatMap snd hdrs
+          newHeader   = ("content-type", "multipart/mixed; boundary=\"" ++ newBoundary ++ "\"")
+          mixture b [] = [PP.text ("--"++b++"--")]
+          mixture b (body:bodies) = PP.text ("--"++b) : body : mixture b bodies
+
+md5Hash = showOctet . hash . map (toEnum.ord)
+    where showOctet = concat . map hexChars
+          hexChars c = [arr ! (c `div` 16), arr ! (c `mod` 16)]
+          arr = listArray (0, 15) "0123456789abcdef"
 
