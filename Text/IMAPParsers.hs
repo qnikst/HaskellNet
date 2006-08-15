@@ -1,4 +1,4 @@
-module Text.Packrat.IMAPParsers where
+module Text.IMAPParsers where
 
 import Text.Packrat.Parse hiding (space, spaces)
 import Text.Packrat.Pos

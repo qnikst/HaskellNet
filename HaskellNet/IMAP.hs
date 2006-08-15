@@ -35,7 +35,7 @@ import Data.Word
 import Data.List
 import Data.Char
 
-import Text.Packrat.IMAPParsers
+import Text.IMAPParsers
 import Text.Packrat.Parse (Result)
 
 
