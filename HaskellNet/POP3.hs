@@ -5,7 +5,7 @@
 -- License     :  BSD-style (see the file LICENSE)
 -- 
 -- Maintainer  :  mukai@jmuk.org
--- Stability   :  unstable
+-- Stability   :  stable
 -- Portability :  portable
 -- 
 -- POP3 client implementation
