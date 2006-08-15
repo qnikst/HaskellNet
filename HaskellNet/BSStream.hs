@@ -20,7 +20,7 @@ module HaskellNet.BSStream
 where
 
 import Data.ByteString (ByteString)
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS
 import Control.Monad.Trans
 import System.IO
 import Network
@@ -37,8 +37,14 @@ class BSStream h where
     bsGet :: h -> Int -> IO ByteString
     bsPut :: h -> ByteString -> IO ()
     bsPutStrLn :: h -> ByteString -> IO ()
+    bsPutCrLf  :: h -> ByteString -> IO ()
     bsClose :: h -> IO ()
 
+    bsPutCrLf h s = bsPut h s >> bsPut h crlf
+    bsPutStrLn h s = bsPut h s >> bsPut h lf
+
+lf   = BS.singleton '\n' 
+crlf = BS.pack "\r\n"
 
 instance BSStream Handle where
 #if defined(__GLASGOW_HASKELL__)

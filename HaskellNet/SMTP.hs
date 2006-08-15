@@ -161,33 +161,30 @@ parseResponse st = do lst <- readLines
 -- | send a method to a server
 sendCommand :: BSStream s => SMTPConnection s -> Command -> IO (ReplyCode, ByteString)
 sendCommand (SMTPC conn _) (DATA dat) =
-    do bsPut conn $ BS.pack "DATA\r\n"
+    do bsPutCrLf conn $ BS.pack "DATA"
        (code, msg) <- parseResponse conn
        unless (code == 354) $ fail "this server cannot accept any data."
        mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]
        parseResponse conn
-    where sendLine l = bsPut conn $ (BS.append l crlf)
+    where sendLine l = bsPutCrLf conn l
 sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
-    do bsPut conn command
+    do bsPutCrLf conn command
        (code, msg) <- parseResponse conn
-       bsPut conn $ BS.pack userB64
-       bsPut conn crlf
+       bsPutCrLf conn $ BS.pack userB64
        (code, msg) <- parseResponse conn
-       bsPut conn $ BS.pack passB64
-       bsPut conn crlf
+       bsPutCrLf conn $ BS.pack passB64
        parseResponse conn
-    where command = BS.pack $ "AUTH LOGIN\r\n"
+    where command = BS.pack $ "AUTH LOGIN"
           (userB64, ' ':passB64) = break isSpace $ login username password
 sendCommand (SMTPC conn _) (AUTH at username password) =
-    do bsPut conn command >> bsPut conn crlf
+    do bsPutCrLf conn command
        (code, msg) <- parseResponse conn
        unless (code == 334) $ fail "authentication failed."
-       bsPut conn $ BS.pack $ auth at (BS.unpack msg) username password
-       bsPut conn crlf
+       bsPutCrLf conn $ BS.pack $ auth at (BS.unpack msg) username password
        parseResponse conn
     where command = BS.pack $ unwords ["AUTH", show at]
 sendCommand (SMTPC conn _) meth =
-    do bsPut conn $ BS.append (BS.pack command) crlf
+    do bsPutCrLf conn $ BS.pack command
        parseResponse conn
     where command = case meth of
                       (HELO param) -> "HELO " ++ param

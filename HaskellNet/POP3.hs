@@ -67,11 +67,12 @@ import qualified Data.ByteString.Char8 as BSC
 
 import Prelude hiding (catch)
 
-data BSStream s => POP3Connection s = POP3C !s !ByteString -- ^ APOP key
+data BSStream s => POP3Connection s = POP3C !s !String -- ^ APOP key
 
-data Command = USER String
-             | PASS String
-             | APOP String String
+data Command = USER UserName
+             | PASS Password
+             | APOP UserName Password
+             | AUTH AuthType UserName Password
              | NOOP
              | QUIT
              | STAT
@@ -85,7 +86,6 @@ data Command = USER String
 data Response = Ok | Err 
                 deriving (Eq, Show)
 
-crlf = "\r\n"
 
 hexDigest = concatMap (flip showHex "") . hash . map (toEnum.fromEnum) 
 
@@ -110,8 +110,8 @@ connectStream st =
        when (resp == Err) $ fail "cannot connect"
        let code = last $ BS.words msg
        if BS.head code == '<' && BS.last code == '>'
-         then return $ POP3C st code
-         else return $ POP3C st BS.empty
+         then return $ POP3C st (BS.unpack code)
+         else return $ POP3C st ""
 
 
 response :: BSStream s => s -> IO (Response, ByteString)
@@ -137,16 +137,33 @@ responseML st =
 -- | sendCommand sends a pop3 command via a pop3 connection.  This
 -- action is too generic. Use more specific actions
 sendCommand :: BSStream s => POP3Connection s -> Command -> IO (Response, ByteString)
-sendCommand (POP3C conn msg_id) (LIST Nothing) =
-    bsPut conn (BS.pack "LIST\r\n") >> responseML conn
-sendCommand (POP3C conn msg_id) (UIDL Nothing) =
-    bsPut conn (BS.pack "UIDL\r\n") >> responseML conn
-sendCommand (POP3C conn msg_id) (RETR msg) =
-    bsPut conn (BS.pack $ "RETR " ++ show msg ++ crlf) >> responseML conn
-sendCommand (POP3C conn msg_id) (TOP msg n) =
-    bsPut conn (BS.pack $ "TOP " ++ show msg ++ " " ++ show n ++ crlf) >> responseML conn
+sendCommand (POP3C conn _) (LIST Nothing) =
+    bsPutCrLf conn (BS.pack "LIST") >> responseML conn
+sendCommand (POP3C conn _) (UIDL Nothing) =
+    bsPutCrLf conn (BS.pack "UIDL") >> responseML conn
+sendCommand (POP3C conn _) (RETR msg) =
+    bsPutCrLf conn (BS.pack $ "RETR " ++ show msg) >> responseML conn
+sendCommand (POP3C conn _) (TOP msg n) =
+    bsPutCrLf conn (BS.pack $ "TOP " ++ show msg ++ " " ++ show n) >> responseML conn
+sendCommand (POP3C conn _) (AUTH LOGIN user pass) =
+    do bsPutCrLf conn $ BS.pack "AUTH LOGIN"
+       bsGetContents conn
+       bsPutCrLf conn $ BS.pack userB64
+       bsGetContents conn
+       bsPutCrLf conn $ BS.pack passB64
+       response conn
+    where (userB64, ' ':passB64) = break isSpace $ A.login user pass
+sendCommand (POP3C conn _) (AUTH at user pass) =
+    do bsPutCrLf conn $ BS.pack $ unwords ["AUTH", show at]
+       c <- bsGetContents conn
+       let challenge =
+               if BS.take 2 c == BS.pack "+ "
+               then b64Decode $ BS.unpack $ head $ dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
+               else ""
+       bsPutCrLf conn $ BS.pack $ A.auth at challenge user pass
+       response conn
 sendCommand (POP3C conn msg_id) command =
-    bsPut conn (BS.pack $ commandStr ++ crlf) >> response conn
+    bsPutCrLf conn (BS.pack commandStr) >> response conn
     where commandStr = case command of
                          (USER name) -> "USER " ++ name
                          (PASS pass) -> "PASS " ++ pass
@@ -157,7 +174,7 @@ sendCommand (POP3C conn msg_id) command =
                          RSET        -> "RSET"
                          (LIST msg)  -> "LIST " ++ maybe "" show msg
                          (UIDL msg)  -> "UIDL " ++ maybe "" show msg
-                         (APOP user pass) -> "APOP " ++ user ++ " " ++ hexDigest pass
+                         (APOP user pass) -> "APOP " ++ user ++ " " ++ hexDigest (msg_id ++ pass)
 
 user :: BSStream s => POP3Connection s -> String -> IO ()
 user conn name = do (resp, _) <- sendCommand conn (USER name)
@@ -171,34 +188,15 @@ userPass :: BSStream s => POP3Connection s -> UserName -> Password -> IO ()
 userPass conn name pwd = user conn name >> pass conn pwd
 
 auth :: BSStream s => POP3Connection s -> AuthType -> UserName -> Password -> IO ()
-auth (POP3C conn _) LOGIN user pass =
-    do bsPut conn $ BS.pack "AUTH LOGIN\r\n"
-       bsGetContents conn
-       bsPut conn $ BS.pack (userB64++crlf)
-       bsGetContents conn
-       bsPut conn $ BS.pack (passB64++crlf)
-       (resp, msg) <- response conn
-       unless (resp == Ok) $ fail ("authentication failed: " ++ BS.unpack msg)
-    where (userB64, ' ':passB64) = break isSpace $ A.login user pass
-auth (POP3C conn _) at user pass =
-    do bsPut conn $ BS.pack authCmd
-       challenge <- getChallenge conn
-       bsPut conn $ BS.pack $ (A.auth at challenge user pass ++ crlf)
-       (resp, msg) <- response conn
-       unless (resp == Ok) $ fail ("authentication failed: " ++ BS.unpack msg)
-    where authCmd = unwords ["AUTH", show at] ++ crlf
-          getChallenge conn =
-              do c <- bsGetContents conn
-                 if BS.take 2 c == BS.pack "+ "
-                   then let c' = BS.drop 2 c
-                        in return $ b64Decode $ BS.unpack $ head $ dropWhile (isSpace . BS.last) $ BS.inits c'
-                   else return ""
-
+auth conn at user pass =
+    do (resp, msg) <- sendCommand conn (AUTH at user pass)
+       unless (resp == Ok) $ fail $ "authentication failed: " ++ BS.unpack msg
              
 
 apop :: BSStream s => POP3Connection s -> String -> String -> IO ()
-apop conn name pwd = do (resp, _) <- sendCommand conn (APOP name pwd)
-                        when (resp == Err) $ fail "cannot authenticate"
+apop conn name pwd =
+    do (resp, msg) <- sendCommand conn (APOP name pwd)
+       when (resp == Err) $ fail $ "authentication failed: " ++ BS.unpack msg
 
 stat :: BSStream s => POP3Connection s -> IO (Int, Int)
 stat conn = do (resp, msg) <- sendCommand conn STAT

@@ -62,7 +62,6 @@ instance BSStream (TlsSession t) where
         do withForeignPtr fptr $ \ptr -> (tlsSend s (plusPtr ptr off) len)
            return ()
         where (fptr, off, len) = BSB.toForeignPtr bs
-    bsPutStrLn sess bs = bsPut sess (BS.append bs $ BS.singleton '\n')
     bsClose (TlsSession s _) = bye s ShutRdwr
 
 

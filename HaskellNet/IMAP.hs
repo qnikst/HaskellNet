@@ -161,7 +161,7 @@ emptyMboxInfo = MboxInfo "" 0 0 [] [] False False 0 0
 sendCommand' :: BSStream s => IMAPConnection s -> String -> IO ByteString
 sendCommand' (IMAPC s mbox nr) cmdstr =
     do num <- readIORef nr 
-       bsPut s $ BS.pack $ show6 num ++ " " ++ cmdstr ++ crlf
+       bsPutCrLf s $ BS.pack $ show6 num ++ " " ++ cmdstr
        modifyIORef nr (+1)
        bsGetContents s
 
@@ -219,10 +219,10 @@ _select cmd conn@(IMAPC s mbox _) mboxName =
 authenticate :: BSStream s => IMAPConnection s -> AuthType -> UserName -> Password -> IO ()
 authenticate conn@(IMAPC s mbox nr) LOGIN user pass =
     do num <- readIORef nr
-       sendCommand' conn "AUTHENTICATE LOGIN\r\n"
-       bsPut s $ BS.pack (userB64 ++ "\r\n")
+       sendCommand' conn "AUTHENTICATE LOGIN"
+       bsPutCrLf s $ BS.pack userB64
        bsGetContents s
-       bsPut s $ BS.pack (passB64 ++ "\r\n")
+       bsPutCrLf s $ BS.pack passB64
        buf <- bsGetContents s
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
@@ -234,12 +234,12 @@ authenticate conn@(IMAPC s mbox nr) LOGIN user pass =
     where (userB64, ' ':passB64) = break isSpace $ A.login user pass
 authenticate conn@(IMAPC s mbox nr) at user pass =
     do num <- readIORef nr
-       c <- sendCommand' conn $ "AUTHENTICATE " ++ show at ++ "\r\n"
+       c <- sendCommand' conn $ "AUTHENTICATE " ++ show at
        let challenge =
                if BS.take 2 c == BS.pack "+ "
                then b64Decode $ BS.unpack $ head $ dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
                else ""
-       bsPut s $ BS.pack $ A.auth at challenge user pass ++ "\r\n"
+       bsPutCrLf s $ BS.pack $ A.auth at challenge user pass
        buf <- bsGetContents s
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
@@ -288,7 +288,7 @@ appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags time =
                 (unwords ["APPEND", mbox
                          , fstr, tstr,  "{" ++ show len ++ "}"])
        unless (BS.null buf || (BS.head buf /= '+')) $ fail "illegal server response"
-       mapM_ (\l -> bsPut s l >> bsPut s crlf) mailLines
+       mapM_ (bsPutCrLf s) mailLines
        buf <- bsGetContents s
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf
        case resp of
@@ -297,7 +297,6 @@ appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags time =
          BAD _ msg -> fail ("BAD: "++msg)
          PREAUTH _ msg -> fail ("PREAUTH: "++msg)
     where mailLines = BS.lines mailData
-          crlf      = BS.pack "\r\n"
           len       = sum $ map ((2+) . BS.length) mailLines
           tstr      = maybe "" show time
           fstr      = unwords $ map show flags
