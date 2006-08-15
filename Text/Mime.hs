@@ -5,7 +5,7 @@
 -- License     :  BSD-style (see the file LICENSE)
 -- 
 -- Maintainer  :  mukai@jmuk.org
--- Stability   :  stable
+-- Stability   :  experimental
 -- Portability :  portable
 -- 
 -- Mime Parser
