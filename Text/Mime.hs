@@ -1,3 +1,16 @@
+----------------------------------------------------------------------
+-- |
+-- Module      :  Text.Mime
+-- Copyright   :  (c) Jun Mukai 2006
+-- License     :  BSD-style (see the file LICENSE)
+-- 
+-- Maintainer  :  mukai@jmuk.org
+-- Stability   :  stable
+-- Portability :  portable
+-- 
+-- Mime Parser
+-- 
+
 module Text.Mime where
 
 import Text.Packrat.Parse hiding (space, spaces, Message)
