@@ -160,7 +160,9 @@ Parser pMime =
                  lineBreak
                  if isMultipart headers
                     then let b' = boundary headers
-                         in do mimeBodies <- many $ mimeInner $
+                         in do string ("--"++b')
+                               lineBreak
+                               mimeBodies <- many $ mimeInner $
                                                string ("--"++b')
                                mimeLast <- mimeInner $ string ("--"++b'++"--")
                                b >> lineBreak
