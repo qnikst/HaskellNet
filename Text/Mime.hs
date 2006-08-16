@@ -121,7 +121,7 @@ Parser pHeader =
        many (oneOf " \t")
        value <- noneOf "\r\n" `manyTill` lineBreak
        cont <- many (many1 (oneOf " \t")  >> (anyChar `manyTill` lineBreak))
-       return (map toLower field, unwords (value:cont))
+       return (capital field, unwords (value:cont))
 
 pMessage :: MimeDerivs -> Result MimeDerivs Message
 Parser pMessage = do headers <- many (Parser dvHeader)
@@ -143,11 +143,11 @@ Parser pMime =
          else do body <- Parser dvRest
                  return $ SinglePart headers body
     where isMultipart headers =
-              case lookup "content-type" headers of
+              case lookup "Content-Type" headers of
                 Nothing -> False
                 Just s  -> "multipart/" == (take 10 s)
           boundary headers =
-              case lookup "content-type" headers of
+              case lookup "Content-Type" headers of
                 Nothing -> fail ""
                 Just s  -> let s' = drop 9 $ head $
                                     dropWhile ((/="boundary=") . (take 9))
@@ -286,8 +286,9 @@ showHeader charset (field, value) =
     where separate s | length s < 76 - length field = [s]
                      | isJust (find isSpace s)       =
                          concatMap separate $ words s
-                     | otherwise                     =
-                         let (s', s'') = splitAt (76 - length field) s
+                     | length s < 998 - length field = [s]
+                     | otherwise =
+                         let (s', s'') = splitAt (998 - length field) s
                          in s' : separate s''
           prepB64 s | isJust $ find (not.isPrint) s =
                         "=?" ++ charset ++ "?b?" ++ b64Encode s ++ "?="
@@ -298,7 +299,7 @@ capital "" = ""
 capital (c:cs) | isAlpha c = toUpper c : inner cs
                | otherwise = c : capital cs
     where inner "" = ""
-          inner (c:cs) | isAlpha c = c : inner cs
+          inner (c:cs) | isAlpha c = toLower c : inner cs
                        | otherwise = c : capital cs
 
 b64Encode :: String -> String
@@ -314,14 +315,14 @@ showMime charset (SinglePart hdrs body) =
     PP.vcat ((map (showHeader charset) hdrs) ++
                [ PP.empty, PP.text (BS.unpack body)])
 showMime charset (MultiPart hdrs bodies)
-    | isJust $ lookup "content-type" hdrs =
+    | isJust $ lookup "Content-Type" hdrs =
       PP.vcat $ map (showHeader charset) hdrs ++
             (PP.empty : mixture boundary (map (showMime charset) bodies))
     | otherwise =
         PP.vcat $ map (showHeader charset) (hdrs++[newHeader]) ++
               (PP.empty : mixture newBoundary
                      (map (showMime charset) bodies))
-    where boundary = let s = fromJust $ lookup "content-type" hdrs
+    where boundary = let s = fromJust $ lookup "Content-Type" hdrs
                          s' = drop 9 $ head $
                                  dropWhile ((/="boundary=") . (take 9))
                                                (tails s)
@@ -329,7 +330,7 @@ showMime charset (MultiPart hdrs bodies)
                         then takeWhile (/='"') $ tail s'
                         else takeWhile isAlphaNum s'
           newBoundary = md5Hash $ concatMap snd hdrs
-          newHeader   = ("content-type", "multipart/mixed; boundary=\"" ++ newBoundary ++ "\"")
+          newHeader   = ("Content-Type", "multipart/mixed; boundary=\"" ++ newBoundary ++ "\"")
           mixture b [] = [PP.text ("--"++b++"--")]
           mixture b (body:bodies) = PP.text ("--"++b) : body : mixture b bodies
 
