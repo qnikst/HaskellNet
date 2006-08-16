@@ -1,15 +1,15 @@
 module Main (main) where
 
-import Text.Packrat.IMAPParsers
+import Text.IMAPParsers
 
 import Test.HUnit
 
 baseTest =
-    [(OK Nothing "LOGIN Completed", MboxUpdate Nothing Nothing)
+    [(OK Nothing "LOGIN Completed", MboxUpdate Nothing Nothing, ())
      ~=? eval' pNone "A001"
              "* OK [ALERT] System shutdown in 10 minutes\r\n\
              \A001 OK LOGIN Completed\r\n"
-    ,(NO Nothing "COPY failed: disk is full", MboxUpdate Nothing Nothing)
+    ,(NO Nothing "COPY failed: disk is full", MboxUpdate Nothing Nothing, ())
      ~=?  eval' pNone "A223"
               "* NO Disk is 98% full, please delete unnecessary data\r\n\
               \* NO Disk is 99% full, please delete unnecessary data\r\n\
@@ -25,8 +25,7 @@ capabilityTest =
             \abcd OK CAPABILITY completed\r\n"
 
 noopTest =
-    ( OK Nothing "NOOP completed"
-    , MboxUpdate (Just 23) (Just 3) )
+    ( OK Nothing "NOOP completed", MboxUpdate (Just 23) (Just 3), ())
     ~=?  eval' pNone "a047"
              "* 22 EXPUNGE\r\n\
              \* 23 EXISTS\r\n\
@@ -36,6 +35,7 @@ noopTest =
 
 selectTest =
     [ ( OK (Just READ_WRITE) "SELECT completed"
+      , MboxUpdate Nothing Nothing
       , MboxInfo "" 172 1 [Answered, Flagged, Deleted, Seen, Draft]
                      [Deleted, Seen] True True 4392 3857529045 )
       ~=? eval' pSelect "A142"
@@ -48,6 +48,7 @@ selectTest =
               \* OK [PERMANENTFLAGS (\\Deleted \\Seen \\*)] Limited\r\n\
               \A142 OK [READ-WRITE] SELECT completed\r\n"
     , (OK (Just READ_ONLY) "EXAMINE completed"
+      , MboxUpdate Nothing Nothing
       , MboxInfo "" 17 2 [Answered, Flagged, Deleted, Seen, Draft]
                      [] False False 4392 3857529045 )
       ~=? eval' pSelect "A932"
