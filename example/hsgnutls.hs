@@ -1,5 +1,12 @@
-{-# OPTIONS_GHC -cpp -fglasgow-exts #-}
+{-# OPTIONS_GHC -cpp -fglasgow-exts -package hsgnutls -package HaskellNet #-}
 -- examples to connect server by hsgnutls
+
+module TLSStream
+    ( connectTLS
+    , connectTLSPort
+    , TlsSession
+    , fromSession )
+    where
 
 import Network.GnuTLS
 import Network
@@ -21,6 +28,20 @@ data TlsSession t = TlsSession { sess :: Session t
 fromSession :: Session t -> IO (TlsSession t)
 fromSession s = do newbuf <- newIORef BS.empty
                    return $ TlsSession s newbuf
+
+connectTLS :: HostName -> PortNumber -> IO (TlsSession Client)
+connectTLS host port = connectTLSPort host (PortNumber port)
+
+connectTLSPort :: HostName -> PortID -> IO (TlsSession Client)
+connectTLSPort host port =
+    do s <- tlsClient [handle :=> connectTo host port, priorities := [CrtX509, CrtOpenpgp]]
+       cred <- certificateCredentials
+       set s [ credentials := cred]
+       handshake s
+       fromSession s
+
+
+
 
 extendBuf sess@(TlsSession s buf) =
     do res <- mallocForeignPtrBytes 1024
@@ -64,11 +85,4 @@ instance BSStream (TlsSession t) where
         where (fptr, off, len) = BSB.toForeignPtr bs
     bsClose (TlsSession s _) = bye s ShutRdwr
 
-
-connectTLS host port =
-    do s <- tlsClient [handle :=> connectTo host port, priorities := [CrtX509, CrtOpenpgp]]
-       cred <- certificateCredentials
-       set s [ credentials := cred]
-       handshake s
-       fromSession s
 
