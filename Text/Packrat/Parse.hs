@@ -91,6 +91,9 @@ notFollowedBy (Parser p) = Parser parse
 optional :: Derivs d => Parser d v -> Parser d (Maybe v)
 optional p = (do v <- p; return (Just v)) <|> return Nothing
 
+option :: Derivs d => v -> Parser d v -> Parser d v
+option v p = (do v' <- p; return v') <|> return v
+
 many :: Derivs d => Parser d v -> Parser d [v]
 many p = (do { v <- p; vs <- many p; return (v : vs) } )
      <|> return []

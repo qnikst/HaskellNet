@@ -15,5 +15,6 @@ Exposed-modules:
    HaskellNet.Stream,
    HaskellNet.TCP,
    HaskellNet.BSStream,
-   HaskellNet.Auth
+   HaskellNet.Auth,
+   HaskellNet.URI
 other-modules:  Text.Packrat.Pos, Text.Packrat.Parse
