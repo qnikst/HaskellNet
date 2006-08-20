@@ -12,11 +12,33 @@
 -- 
 
 module HaskellNet.IMAP
+    ( -- * connection type and corresponding actions
+      IMAPConnection
+    , mailbox, exists, recent
+    , flags, permanentFlags, isWritable, isFlagWritable
+    , uidNext, uidValidity
+    , stream
+    , connectIMAP, connectIMAPPort, connectStream
+      -- * IMAP commands
+      -- ** any state commands
+    , noop, capability, logout
+      -- ** not authenticated state commands
+    , login, authenticate
+      -- ** autenticated state commands
+    , select, examine, create, delete, rename
+    , subscribe, unsubscribe
+    , list, lsub, status, append
+      -- ** selected state commands
+    , check, close, expunge
+    , search, fetch, store, copy
+      -- * other types
+    , Flag(..), Attribute(..), MailboxStatus(..)
+    )
 where
 
 import Network
 import HaskellNet.BSStream
-import HaskellNet.Auth hiding (auth)
+import HaskellNet.Auth hiding (auth, login)
 import qualified HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
@@ -32,10 +54,10 @@ import System.Time
 import Data.IORef
 import Data.Maybe
 import Data.Word
-import Data.List
+import Data.List hiding (delete)
 import Data.Char
 
-import Text.IMAPParsers
+import Text.IMAPParsers hiding (exists, recent)
 import Text.Packrat.Parse (Result)
 
 

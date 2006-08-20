@@ -34,7 +34,7 @@ module HaskellNet.SMTP
 import HaskellNet.BSStream
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
-import Network.BSD
+import Network.BSD (getHostName)
 import Network
 
 import Control.Exception

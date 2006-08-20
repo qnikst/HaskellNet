@@ -42,10 +42,11 @@ connectTLSPort host port =
 
 
 
+bufLen = 1024
 
 extendBuf sess@(TlsSession s buf) =
-    do res <- mallocForeignPtrBytes 1024
-       len <- withForeignPtr res (\p -> tlsRecv s p 1024)
+    do res <- mallocForeignPtrBytes bufLen
+       len <- withForeignPtr res (\p -> tlsRecv s p bufLen)
        modifyIORef buf (flip BS.append $ BSB.fromForeignPtr res len)
        return len
 
@@ -67,8 +68,8 @@ instance BSStream (TlsSession t) where
     bsGetNonBlocking = bsGet
 #endif
     bsGetContents sess@(TlsSession s buf) =
-        do doWhile (readIORef buf >>= return . (/=0) . BS.length)
-                       (extendBuf sess)
+        do doWhile (extendBuf sess >>= return . (==bufLen))
+                       (return ())
            bufstr <- readIORef buf
            writeIORef buf BS.empty
            return bufstr
