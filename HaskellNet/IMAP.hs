@@ -33,6 +33,7 @@ module HaskellNet.IMAP
     , search, fetch, store, copy
       -- * other types
     , Flag(..), Attribute(..), MailboxStatus(..)
+    , SearchQuery(..), FlagsQuery(..)
     )
 where
 

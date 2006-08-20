@@ -219,7 +219,7 @@ Parser pSelect =
 
 pFetch :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [(Integer, [(String, String)])])
 Parser pFetch =
-    do untagged <- many (pFetchLine)
+    do untagged <- many (pFetchLine <|> pOtherLine)
        resp <- Parser pDone
        let (mboxUp, fetchRes) = mkMboxUpdate untagged
        return (resp, mboxUp, fetchRes)

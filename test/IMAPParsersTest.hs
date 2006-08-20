@@ -14,6 +14,10 @@ baseTest =
               "* NO Disk is 98% full, please delete unnecessary data\r\n\
               \* NO Disk is 99% full, please delete unnecessary data\r\n\
               \A223 NO COPY failed: disk is full\r\n"
+    ,(OK Nothing "LOGOUT completed", MboxUpdate Nothing Nothing, ())
+     ~=? eval' pNone "a006"
+             "* BYE Courier-IMAP server shutting down\r\n\
+             \a006 OK LOGOUT completed\r\n"
     ]
 
 capabilityTest =

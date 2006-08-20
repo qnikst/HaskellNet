@@ -5,6 +5,7 @@ module TLSStream
     ( connectTLS
     , connectTLSPort
     , TlsSession
+    , sess
     , fromSession )
     where
 
@@ -15,6 +16,8 @@ import HaskellNet.BSStream
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Base as BSB
+
+import System.IO
 
 import Data.IORef
 import Control.Monad
@@ -34,7 +37,8 @@ connectTLS host port = connectTLSPort host (PortNumber port)
 
 connectTLSPort :: HostName -> PortID -> IO (TlsSession Client)
 connectTLSPort host port =
-    do s <- tlsClient [handle :=> connectTo host port, priorities := [CrtX509, CrtOpenpgp]]
+    do s <- tlsClient [ handle :=> connectTo host port
+                      , priorities := [CrtX509, CrtOpenpgp]]
        cred <- certificateCredentials
        set s [ credentials := cred]
        handshake s
@@ -42,7 +46,7 @@ connectTLSPort host port =
 
 
 
-bufLen = 1024
+bufLen = 4096
 
 extendBuf sess@(TlsSession s buf) =
     do res <- mallocForeignPtrBytes bufLen
@@ -69,7 +73,7 @@ instance BSStream (TlsSession t) where
 #endif
     bsGetContents sess@(TlsSession s buf) =
         do doWhile (extendBuf sess >>= return . (==bufLen))
-                       (return ())
+                   (return ())
            bufstr <- readIORef buf
            writeIORef buf BS.empty
            return bufstr
