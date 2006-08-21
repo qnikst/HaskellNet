@@ -171,7 +171,7 @@ connectIMAP hostname = connectIMAPPort hostname 143
 
 connectStream :: BSStream s => s -> IO (IMAPConnection s)
 connectStream s =
-    do msg <- bsGetLine s
+    do msg <- bsGetContents s
        unless (and $ BS.zipWith (==) msg (BS.pack "* OK")) $ fail "cannot connect to the server"
        mbox <- newIORef emptyMboxInfo
        c <- newIORef 0
@@ -227,7 +227,7 @@ capability :: BSStream s => IMAPConnection s -> IO [String]
 capability conn = sendCommand conn "CAPABILITY" pCapability
 
 logout :: BSStream s => IMAPConnection s -> IO ()
-logout conn@(IMAPC s _ _) = do sendCommand conn "LOGOUT" pNone
+logout conn@(IMAPC s _ _) = do bsPutCrLf s $ BS.pack "a0001 LOGOUT"
                                bsClose s
 
 login :: BSStream s => IMAPConnection s -> UserName -> Password -> IO ()
