@@ -88,9 +88,6 @@
 --
 -----------------------------------------------------------------------------
 module HaskellNet.HTTP (
-    module HaskellNet.Stream,
-    module HaskellNet.TCP,
-
     -- ** Constants
     httpVersion,
     
@@ -133,30 +130,27 @@ module HaskellNet.HTTP (
 import Control.Exception as Exception
 
 -- Networking
-import Network (withSocketsDo)
-import Network.BSD
+import Network (withSocketsDo, connectTo, PortID(..), PortNumber)
 import Network.URI
-import Network.Socket
-import HaskellNet.Stream
-import HaskellNet.TCP
+import HaskellNet.BSStream
 
 
 -- Util
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BS
 import Data.Bits ((.&.))
 import Data.Char
-import Data.List (isPrefixOf,partition,elemIndex)
+import Data.List (partition)
 import Data.Maybe
 import Data.Array.MArray
 import Data.IORef
 import Control.Concurrent
 import Control.Monad (when,liftM,guard)
-import Control.Monad.ST (ST,stToIO)
+import Control.Monad.Error
 import Numeric (readHex)
 import Text.ParserCombinators.ReadP
 import Text.Read.Lex 
 import System.IO
-import System.IO.Error (isEOFError)
-import qualified System.IO.Error
 
 import Foreign.C.Error
 
@@ -174,23 +168,38 @@ httpLogFile = "http-debug.log"
 -----------------------------------------------------------------
 
 -- remove leading and trailing whitespace.
-trim :: String -> String
-trim = let dropspace = dropWhile isSpace in
-       reverse . dropspace . reverse . dropspace
+trim :: ByteString -> ByteString
+trim = BS.dropSpaceEnd . BS.dropSpace
 
+trim' :: String -> String
+trim' = BS.unpack . trim . BS.pack
 
--- Split a list into two parts, the delimiter occurs
--- at the head of the second list.  Nothing is returned
--- when no occurance of the delimiter is found.
-split :: Eq a => a -> [a] -> Maybe ([a],[a])
-split delim list = case delim `elemIndex` list of
-    Nothing -> Nothing
-    Just x  -> Just $ splitAt x list
-    
-
+split :: Char -> ByteString -> Maybe (ByteString, ByteString)
+split c s = let (s1, s2) = BS.breakChar c s in
+            if BS.null s2 then Nothing else Just (s1, s2)
 
 crlf = "\r\n"
 sp   = " "
+
+
+-----------------------------------------------------------------
+---------------------- Error Handling ---------------------------
+-----------------------------------------------------------------
+
+data ConnError = ErrorReset 
+               | ErrorClosed
+               | ErrorParse String
+               | ErrorMisc String
+    deriving(Show,Eq)
+
+-- | This is the type returned by many exported network functions.
+type Result a = Either ConnError   {- error  -}
+                       a           {- result -}
+
+instance Error ConnError where
+    noMsg    = ErrorMisc ""
+    strMsg s = ErrorParse s
+
 
 -----------------------------------------------------------------
 ------------------ URI Authority parsing ------------------------
@@ -555,34 +564,32 @@ instance HasHeaders Response where
 ------------------ Parsing --------------------------------------
 -----------------------------------------------------------------
 
-parseHeader :: String -> Result Header
+parseHeader :: ByteString -> Result Header
 parseHeader str =
     case split ':' str of
-        Nothing -> Left (ErrorParse $ "Unable to parse header: " ++ str)
-        Just (k,v) -> Right $ Header (fn k) (trim $ drop 1 v)
+        Nothing -> Left (ErrorParse $ "Unable to parse header: " ++ BS.unpack str)
+        Just (k,v) -> Right $ Header (fn k) (BS.unpack $ trim $ BS.tail v)
     where
         fn k = case map snd $ filter (match k . fst) headerMap of
-                 [] -> (HdrCustom k)
+                 [] -> (HdrCustom (BS.unpack k))
                  (h:_) -> h
 
-        match :: String -> String -> Bool
-        match s1 s2 = map toLower s1 == map toLower s2
-    
+        match :: ByteString -> String -> Bool
+        match s1 s2 = map toLower (BS.unpack s1) == map toLower s2
 
-parseHeaders :: [String] -> Result [Header]
-parseHeaders = catRslts [] . map (parseHeader . clean) . joinExtended ""
+
+parseHeaders :: [ByteString] -> Result [Header]
+parseHeaders = catRslts [] . map (parseHeader . clean) . joinExtended BS.empty
     where
         -- Joins consecutive lines where the second line
         -- begins with ' ' or '\t'.
         joinExtended old (h : t)
-            | not (null h) && (head h == ' ' || head h == '\t')
-                = joinExtended (old ++ ' ' : tail h) t
+            | not (BS.null h) && (BS.head h == ' ' || BS.head h == '\t')
+                = joinExtended (BS.concat [old, BS.singleton ' ', BS.tail h]) t
             | otherwise = old : joinExtended h t
         joinExtended old [] = [old]
 
-        clean [] = []
-        clean (h:t) | h `elem` "\t\r\n" = ' ' : clean t
-                    | otherwise = h : clean t
+        clean = BS.map (\c -> if c `elem` "\t\r\n" then ' ' else c)
 
         -- tollerant of errors?  should parse
         -- errors here be reported or ignored?
@@ -592,47 +599,46 @@ parseHeaders = catRslts [] . map (parseHeader . clean) . joinExtended ""
             case h of
                 Left _ -> catRslts list t
                 Right v -> catRslts (v:list) t
-        catRslts list [] = Right $ reverse list            
+        catRslts list [] = Right $ reverse list
         
 
 -- Parsing a request
-parseRequestHead :: [String] -> Result RequestData
+parseRequestHead :: [ByteString] -> Result RequestData
 parseRequestHead [] = Left ErrorClosed
 parseRequestHead (com:hdrs) =
-    requestCommand com `bindE` \(version,rqm,uri) ->
-    parseHeaders hdrs `bindE` \hdrs' ->
-    Right (rqm,uri,hdrs')
+    do (version, rqm, uri) <- requestCommand com
+       hdrs' <- parseHeaders hdrs
+       return (rqm,uri,hdrs')
     where
         requestCommand line
-	    =  case words line of
-                yes@(rqm:uri:version) -> case (parseURIReference uri, lookup rqm rqMethodMap) of
+	    =  case BS.words line of
+                yes@(rqm:uri:version) -> case (parseURIReference (BS.unpack uri), lookup (BS.unpack rqm) rqMethodMap) of
 					  (Just u, Just r) -> Right (version,r,u)
-					  _                -> Left (ErrorParse $ "Request command line parse failure: " ++ line)
-		no -> if null line
+					  _                -> Left (ErrorParse $ "Request command line parse failure: " ++ BS.unpack line)
+		no -> if BS.null line
 			       then Left ErrorClosed
-			       else Left (ErrorParse $ "Request command line parse failure: " ++ line)  
+			       else Left (ErrorParse $ "Request command line parse failure: " ++ BS.unpack line)  
 
 -- Parsing a response
-parseResponseHead :: [String] -> Result ResponseData
+parseResponseHead :: [ByteString] -> Result ResponseData
 parseResponseHead [] = Left ErrorClosed
 parseResponseHead (sts:hdrs) = 
-    responseStatus sts `bindE` \(version,code,reason) ->
-    parseHeaders hdrs `bindE` \hdrs' ->
-    Right (code,reason,hdrs')
+    do (version, code, reason) <- responseStatus sts
+       hdrs' <- parseHeaders hdrs
+       return (code,reason,hdrs')
     where
 
         responseStatus line
-            =  case words line of
-                yes@(version:code:reason) -> Right (version,match code,concatMap (++" ") reason)
-                no -> if null line 
-                    then Left ErrorClosed  -- an assumption
-                    else Left (ErrorParse $ "Response status line parse failure: " ++ line)
+            =  case BS.words line of
+                yes@(version:code:reason) -> Right (version,match code,concatMap ((++" ") . BS.unpack) reason)
+                no -> if BS.null line 
+                      then Left ErrorClosed  -- an assumption
+                      else Left (ErrorParse $ "Response status line parse failure: " ++ BS.unpack line)
 
+        match s | BS.length s == 3 = (digitToInt a, digitToInt b, digitToInt c)
+                | otherwise        = (-1, -1, -1) -- will create appropriate behaviour
+            where (a, b, c) = (BS.index s 0, BS.index s 1, BS.index s 2)
 
-        match [a,b,c] = (digitToInt a,
-                         digitToInt b,
-                         digitToInt c)
-        match _ = (-1,-1,-1)  -- will create appropriate behaviour
 
 
         
@@ -682,20 +688,16 @@ simpleHTTP :: Request -> IO (Result Response)
 simpleHTTP r = 
     do 
        auth <- getAuth r
-       c <- openTCPPort (host auth) (fromMaybe 80 (port auth))
+       c <- connectTo (host auth) (fromMaybe (Service "http") (port auth >>= Just . PortNumber . toEnum))
        simpleHTTP_ c r
 
 -- | Like 'simpleHTTP', but acting on an already opened stream.
-simpleHTTP_ :: Stream s => s -> Request -> IO (Result Response)
+simpleHTTP_ :: BSStream s => s -> Request -> IO (Result Response)
 simpleHTTP_ s r =
     do 
        auth <- getAuth r
        let r' = fixReq auth r 
-       rsp <- if debug then do
-	        s' <- debugStream httpLogFile s
-	        sendHTTP s' r'
-	       else
-	        sendHTTP s r'
+       rsp <- sendHTTP s r' 
        -- already done by sendHTTP because of "Connection: close" header
        --; close s 
        return rsp
@@ -726,13 +728,13 @@ getAuth r = case parseURIAuthority auth of
 			      Just h -> h
 			      Nothing -> authority (rqURI r)
 
-sendHTTP :: Stream s => s -> Request -> IO (Result Response)
+sendHTTP :: BSStream s => s -> Request -> IO (Result Response)
 sendHTTP conn rq = 
     do { let a_rq = fixHostHeader rq
-       ; rsp <- Exception.catch (main a_rq)
-                      (\e -> do { close conn; throw e })
+       ; rsp <- main a_rq `catchError`
+                  (\e -> do { bsClose conn; throwError e })
        ; let fn list = when (or $ map findConnClose list)
-                            (close conn)
+                            (bsClose conn)
        ; either (\_ -> fn [rqHeaders rq])
                 (\r -> fn [rqHeaders rq,rspHeaders r])
                 rsp
@@ -755,17 +757,17 @@ sendHTTP conn rq =
 	       --let str = if null (rqBody rqst)
                --              then show rqst
                --              else show (insertHeader HdrExpect "100-continue" rqst)
-               writeBlock conn (show rqst)
+               bsPut conn $ BS.pack (show rqst)
 	       -- write body immediately, don't wait for 100 CONTINUE
-	       writeBlock conn (rqBody rqst)
-               rsp <- getResponseHead               
+	       bsPut conn $ BS.pack (rqBody rqst)
+               rsp <- getResponseHead 
                switchResponse True False rsp rqst
         
         -- reads and parses headers
         getResponseHead :: IO (Result ResponseData)
         getResponseHead =
             do { lor <- readTillEmpty1 conn
-               ; return $ lor `bindE` parseResponseHead
+               ; return (lor >>= parseResponseHead)
                }
 
         -- Hmmm, this could go bad if we keep getting "100 Continue"
@@ -786,23 +788,19 @@ sendHTTP conn rq =
             case matchResponse (rqMethod rqst) cd of
                 Continue
                     | not bdy_sent -> {- Time to send the body -}
-                        do { val <- writeBlock conn (rqBody rqst)
-                           ; case val of
-                                Left e -> return (Left e)
-                                Right _ ->
-                                    do { rsp <- getResponseHead
-                                       ; switchResponse allow_retry True rsp rqst
-                                       }
-                           }
+                        do { val <- bsPut conn $ BS.pack (rqBody rqst)
+                           ; rsp <- getResponseHead
+                           ; switchResponse allow_retry True rsp rqst
+                           } `mplus` return (Left ErrorClosed)
                     | otherwise -> {- keep waiting -}
                         do { rsp <- getResponseHead
-                           ; switchResponse allow_retry bdy_sent rsp rqst                           
+                           ; switchResponse allow_retry bdy_sent rsp rqst
                            }
 
                 Retry -> {- Request with "Expect" header failed.
                                 Trouble is the request contains Expects
                                 other than "100-Continue" -}
-                    do { writeBlock conn (show rqst ++ rqBody rqst)
+                    do { bsPut conn $ BS.pack (show rqst ++ rqBody rqst)
                        ; rsp <- getResponseHead
                        ; switchResponse False bdy_sent rsp rqst
                        }   
@@ -821,12 +819,14 @@ sendHTTP conn rq =
                           Nothing -> 
                               case cl of
                                   Just x  -> linearTransfer conn (read x :: Int)
-                                  Nothing -> hopefulTransfer conn ""
+                                  Nothing -> hopefulTransfer conn BS.empty
                           Just x  -> 
-                              case map toLower (trim x) of
+                              case map toLower (trim' x) of
                                   "chunked" -> chunkedTransfer conn
                                   _         -> uglyDeathTransfer conn
-                       ; return $ rslt `bindE` \(ftrs,bdy) -> Right (Response cd rn (hdrs++ftrs) bdy) 
+                       ; return $ do { (ftrs, bdy) <- rslt
+                                     ; return (Response cd rn (hdrs++ftrs) bdy)
+                                     }
                        }
 
         
@@ -843,11 +843,11 @@ sendHTTP conn rq =
         findConnClose hdrs =
             case lookupHeader HdrConnection hdrs of
                 Nothing -> False
-                Just x  -> map toLower (trim x) == "close"
+                Just x  -> map toLower (trim' x) == "close"
 
 -- | Receive and parse a HTTP request from the given Stream. Should be used 
 --   for server side interactions.
-receiveHTTP :: Stream s => s -> IO (Result Request)
+receiveHTTP :: BSStream s => s -> IO (Result Request)
 receiveHTTP conn = do rq <- getRequestHead
 		      processRequest rq	    
     where
@@ -855,7 +855,7 @@ receiveHTTP conn = do rq <- getRequestHead
         getRequestHead :: IO (Result RequestData)
         getRequestHead =
             do { lor <- readTillEmpty1 conn
-               ; return $ lor `bindE` parseRequestHead
+               ; return $ (lor >>= parseRequestHead)
                }
 	
         processRequest (Left e) = return $ Left e
@@ -867,115 +867,106 @@ receiveHTTP conn = do rq <- getRequestHead
                           Nothing ->
                               case cl of
                                   Just x  -> linearTransfer conn (read x :: Int)
-                                  Nothing -> return (Right ([], "")) -- hopefulTransfer ""
+                                  Nothing -> return (Right ([], "")) -- hopefulTransfer BS.empty
                           Just x  ->
-                              case map toLower (trim x) of
+                              case map toLower (trim' x) of
                                   "chunked" -> chunkedTransfer conn
                                   _         -> uglyDeathTransfer conn
                
-               return $ rslt `bindE` \(ftrs,bdy) -> Right (Request uri rm (hdrs++ftrs) bdy)
+               return $ do { (ftrs,bdy) <- rslt
+                           ; return (Request uri rm (hdrs++ftrs) bdy)}
 
 
 -- | Very simple function, send a HTTP response over the given stream. This 
 --   could be improved on to use different transfer types.
-respondHTTP :: Stream s => s -> Response -> IO ()
-respondHTTP conn rsp = do writeBlock conn (show rsp)
+respondHTTP :: BSStream s => s -> Response -> IO ()
+respondHTTP conn rsp = do bsPut conn $ BS.pack (show rsp)
                           -- write body immediately, don't wait for 100 CONTINUE
-                          writeBlock conn (rspBody rsp)
+                          bsPut conn $ BS.pack (rspBody rsp)
 			  return ()
 
 -- The following functions were in the where clause of sendHTTP, they have
 -- been moved to global scope so other functions can access them.		       
 
 -- | Used when we know exactly how many bytes to expect.
-linearTransfer :: Stream s => s -> Int -> IO (Result ([Header],String))
+linearTransfer :: BSStream s => s -> Int -> IO (Result ([Header],String))
 linearTransfer conn n
-    = do info <- readBlock conn n
-         return $ info `bindE` \str -> Right ([],str)
+    = do info <- bsGet conn n
+         return $ Right ([],BS.unpack info)
+      `mplus` return (Left ErrorClosed)
 
 -- | Used when nothing about data is known,
 --   Unfortunately waiting for a socket closure
 --   causes bad behaviour.  Here we just
 --   take data once and give up the rest.
-hopefulTransfer :: Stream s => s -> String -> IO (Result ([Header],String))
+hopefulTransfer :: BSStream s => s -> ByteString -> IO (Result ([Header],String))
 hopefulTransfer conn str
-    = readLine conn >>= 
-      either (\v -> return $ Left v)
-             (\more -> if null more 
-                         then return (Right ([],str)) 
-                         else hopefulTransfer conn (str++more))
+    = do more <- bsGetLine conn
+         if BS.null more 
+           then return (Right ([],BS.unpack str)) 
+           else hopefulTransfer conn (BS.append str more)
+    `mplus` return (Left ErrorClosed)
+
 -- | A necessary feature of HTTP\/1.1
 --   Also the only transfer variety likely to
 --   return any footers.
-chunkedTransfer :: Stream s => s -> IO (Result ([Header],String))
+chunkedTransfer :: BSStream s => s -> IO (Result ([Header],String))
 chunkedTransfer conn
     =  chunkedTransferC conn 0 >>= \v ->
-       return $ v `bindE` \(ftrs,count,info) ->
-                let myftrs = Header HdrContentLength (show count) : ftrs              
-                in Right (myftrs,info)
+       return $ (v >>= \(ftrs,count,info) ->
+                 let myftrs = Header HdrContentLength (show count) : ftrs
+                 in Right (myftrs,info))
 
-chunkedTransferC :: Stream s => s -> Int -> IO (Result ([Header],Int,String))
+chunkedTransferC :: BSStream s => s -> Int -> IO (Result ([Header],Int,String))
 chunkedTransferC conn n
-    =  readLine conn >>= \v -> case v of
-                  Left e -> return (Left e)
-                  Right line ->
-                      let size = ( if null line || (head line) == '0'
-                                     then 0
-                                     else case readHex line of
-                                        (n,_):_ -> n
-                                        _       -> 0
-                                     )
-                      in if size == 0
-                           then do { rs <- readTillEmpty2 conn []
-                                   ; return $
-                                        rs `bindE` \strs ->
-                                        parseHeaders strs `bindE` \ftrs ->
-                                        Right (ftrs,n,"")
-                                   }
-                           else do { some <- readBlock conn size
-                                   ; readLine conn
-                                   ; more <- chunkedTransferC conn (n+size)
-                                   ; return $ 
-                                        some `bindE` \cdata ->
-                                        more `bindE` \(ftrs,m,mdata) -> 
-                                        Right (ftrs,m,cdata++mdata) 
-                                   }                   
+    = bsGetLine conn >>= \line ->
+      let size = ( if BS.null line || (BS.head line) == '0'
+                   then 0
+                   else case readHex $ BS.unpack line of
+                          (n,_):_ -> n
+                          _       -> 0
+                 )
+      in if size == 0
+         then do { rs <- readTillEmpty2 conn []
+                 ; return $ (rs >>= parseHeaders >>= \ftrs -> Right (ftrs,n,""))
+                 }
+         else do { some <- bsGet conn size
+                 ; bsGetLine conn
+                 ; more <- chunkedTransferC conn (n+size)
+                 ; return $ (more >>= \(ftrs, m, mdata) ->
+                             return (ftrs,m,BS.unpack some ++ mdata))
+                 }
 
 -- | Maybe in the future we will have a sensible thing
 --   to do here, at that time we might want to change
 --   the name.
-uglyDeathTransfer :: Stream s => s -> IO (Result ([Header],String))
+uglyDeathTransfer :: BSStream s => s -> IO (Result ([Header],String))
 uglyDeathTransfer conn
     = return $ Left $ ErrorParse "Unknown Transfer-Encoding"
 
 -- | Remove leading crlfs then call readTillEmpty2 (not required by RFC)
-readTillEmpty1 :: Stream s => s -> IO (Result [String])
+readTillEmpty1 :: BSStream s => s -> IO (Result [ByteString])
 readTillEmpty1 conn =
-    do { line <- readLine conn
-       ; case line of
-           Left e -> return $ Left e
-           Right s ->
-               if s == crlf
-                 then readTillEmpty1 conn
-                 else readTillEmpty2 conn [s]
-       }
+    do { line <- bsGetLine conn
+       ; if line == BS.singleton '\r'
+           then readTillEmpty1 conn
+           else readTillEmpty2 conn [line]
+       }           
+    `mplus` return (Left ErrorClosed)
 
 -- | Read lines until an empty line (CRLF),
 --   also accepts a connection close as end of
 --   input, which is not an HTTP\/1.1 compliant
 --   thing to do - so probably indicates an
 --   error condition.
-readTillEmpty2 :: Stream s => s -> [String] -> IO (Result [String])
+readTillEmpty2 :: BSStream s => s -> [ByteString] -> IO (Result [ByteString])
 readTillEmpty2 conn list =
-    do { line <- readLine conn
-       ; case line of
-           Left e -> return $ Left e
-           Right s ->
-               if s == crlf || null s
-                 then return (Right $ reverse (s:list))
-                 else readTillEmpty2 conn (s:list)
+    do { line <- bsGetLine conn
+       ; if line == BS.singleton '\r' || BS.null line
+           then return (Right $ reverse (line:list))
+           else readTillEmpty2 conn (line:list)
        }
-
+    `mplus` return (Left ErrorClosed)
         
 -----------------------------------------------------------------
 ------------------ A little friendly funtionality ---------------

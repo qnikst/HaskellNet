@@ -12,8 +12,6 @@ Exposed-modules:
    HaskellNet.SMTP,
    HaskellNet.POP3,
    HaskellNet.HTTP,
-   HaskellNet.Stream,
-   HaskellNet.TCP,
    HaskellNet.BSStream,
    HaskellNet.Auth,
    HaskellNet.URI
