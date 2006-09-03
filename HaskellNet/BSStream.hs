@@ -38,6 +38,8 @@ class BSStream h where
     bsPut :: h -> ByteString -> IO ()
     bsPutStrLn :: h -> ByteString -> IO ()
     bsPutCrLf  :: h -> ByteString -> IO ()
+    bsPutNoFlush :: h -> ByteString -> IO ()
+    bsFlush :: h -> IO ()
     bsClose :: h -> IO ()
 
     bsPutCrLf h s = bsPut h s >> bsPut h crlf
@@ -54,6 +56,8 @@ instance BSStream Handle where
 #endif
     bsGetContents = BS.hGetContents
     bsGet = BS.hGet
-    bsPut = BS.hPut
-    bsPutStrLn = BS.hPutStrLn
+    bsPut h s = BS.hPut h s >> bsFlush h
+    bsPutStrLn  h s = BS.hPutStrLn h s >> bsFlush h
+    bsPutNoFlush = BS.hPut
+    bsFlush = hFlush
     bsClose = hClose

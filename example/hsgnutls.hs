@@ -98,6 +98,8 @@ instance BSStream (TlsSession t) where
         do withForeignPtr fptr $ \ptr -> (tlsSend s (plusPtr ptr off) len)
            return ()
         where (fptr, off, len) = BSB.toForeignPtr bs
+    bsPutNoFlush = bsPut
+    bsFlush _ = return ()
     bsClose (TlsSession s _ _) = bye s ShutRdwr
 
 
