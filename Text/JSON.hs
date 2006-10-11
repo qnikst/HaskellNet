@@ -1,4 +1,4 @@
-{-# OPTION -fglasgow-exts #-}
+{-# OPTIONS -fglasgow-exts #-}
 ----------------------------------------------------------------------
 -- |
 -- Module      :  Text.JSON

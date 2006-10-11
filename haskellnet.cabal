@@ -18,4 +18,3 @@ Exposed-modules:
    HaskellNet.Auth,
    HaskellNet.URI
 other-modules:  Text.Packrat.Pos, Text.Packrat.Parse
-ghc-options: -fglasgow-exts
