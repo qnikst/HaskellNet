@@ -56,7 +56,6 @@ instance Jsonable Char where
     fromJson = undefined
     toJson = undefined
     fromJsonList (String s) = s
-    fromJsonList (Array s)  = map fromJson s
     fromJsonList _          = error "type mismatch"
     toJsonList = String
     jRead = undefined
@@ -64,7 +63,6 @@ instance Jsonable Char where
     jShowList = show . stringifyString
     jReadList s = case parse s of
                     (String s) -> s
-                    (Array s)  -> map fromJson s
                     _          -> error "type mismatch"
 
 instance Jsonable ByteString where
