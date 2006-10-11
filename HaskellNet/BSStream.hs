@@ -37,17 +37,22 @@ class BSStream h where
     bsGetContents :: h -> IO ByteString
     bsGet :: h -> Int -> IO ByteString
     bsPut :: h -> ByteString -> IO ()
+    bsPuts :: h -> [ByteString] -> IO ()
     bsPutStrLn :: h -> ByteString -> IO ()
     bsPutCrLf  :: h -> ByteString -> IO ()
     bsPutNoFlush :: h -> ByteString -> IO ()
     bsFlush :: h -> IO ()
     bsClose :: h -> IO ()
 
+    bsPuts h strs = mapM_ (bsPut h) strs
     bsPutCrLf h s = bsPut h s >> bsPut h crlf
     bsPutStrLn h s = bsPut h s >> bsPut h lf
 
 lf   = BS.singleton '\n' 
 crlf = BS.pack "\r\n"
+
+blocklen = 4096
+waiting = 500 -- miliseconds
 
 instance BSStream Handle where
 #if defined(__GLASGOW_HASKELL__)
@@ -63,7 +68,12 @@ instance BSStream Handle where
                                              else return []
     bsGetNonBlocking = BS.hGetNonBlocking
 #endif
-    bsGetContents = BS.hGetContents
+    bsGetContents h = getIfReady []
+        where getIfReady ls =
+                  do f <- hWaitForInput h waiting
+                     if f then do l <- bsGetNonBlocking h blocklen
+                                  getIfReady (l:ls)
+                          else return $ BS.concat ls
     bsGet = BS.hGet
     bsPut h s = BS.hPut h s >> bsFlush h
     bsPutStrLn  h s = BS.hPutStrLn h s >> bsFlush h
