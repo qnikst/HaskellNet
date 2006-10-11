@@ -95,6 +95,8 @@ module HaskellNet.HTTP (
     Request(..),
     Response(..),
     RequestMethod(..),
+    RequestOption(..),
+    request,
     simpleHTTP, simpleHTTP_,
     sendHTTP,
     receiveHTTP,
@@ -133,6 +135,7 @@ import Control.Exception as Exception
 import Network (withSocketsDo, connectTo, PortID(..), PortNumber)
 import Network.URI
 import HaskellNet.BSStream
+import HaskellNet.Auth (UserName, Password)
 
 
 -- Util
@@ -169,13 +172,15 @@ httpLogFile = "http-debug.log"
 
 -- remove leading and trailing whitespace.
 trim :: ByteString -> ByteString
-trim = BS.dropSpaceEnd . BS.dropSpace
+trim = dropSpaceEnd . dropSpace
+    where dropSpace = BS.dropWhile isSpace
+          dropSpaceEnd = fst . BS.breakEnd isSpace
 
 trim' :: String -> String
 trim' = BS.unpack . trim . BS.pack
 
 split :: Char -> ByteString -> Maybe (ByteString, ByteString)
-split c s = let (s1, s2) = BS.breakChar c s in
+split c s = let (s1, s2) = BS.break (==c) s in
             if BS.null s2 then Nothing else Just (s1, s2)
 
 crlf = "\r\n"
@@ -525,8 +530,39 @@ instance HasHeaders Request where
     setHeaders rq hdrs = rq { rqHeaders=hdrs }
 
 
+data RequestOption = RqPort     PortNumber
+                   | RqAuth     UserName Password
+                   | RqMethod   RequestMethod
+                   | RqHeader   [Header]
+                   | RqBody     String
+                   | RqQuery    String
+                   | RqFragment String
 
-
+request :: String -> String -> [RequestOption] -> Request
+request hostname path opts = scanOpts (Request initialURI GET [] "") opts
+    where initialURI = URI "http:" (Just (URIAuth "" hostname "")) path "" ""
+          scanOpts r (RqPort pn:tl) =
+              let u  = rqURI r
+                  a  = fromMaybe (URIAuth "" "" "") $ uriAuthority u
+                  a' = a { uriPort = ':':show pn }
+                  u' = u { uriAuthority = Just a' }
+              in scanOpts (r { rqURI = u' }) tl
+          scanOpts r (RqAuth user pass:tl) =
+              let u  = rqURI r
+                  a  = fromMaybe (URIAuth "" "" "") $ uriAuthority u
+                  a' = a { uriUserInfo = concat [user, ":", pass, "@"] }
+                  u' = u { uriAuthority = Just a' }
+              in scanOpts (r { rqURI = u' }) tl
+          scanOpts r (RqMethod mth:tl) = scanOpts (r { rqMethod = mth }) tl
+          scanOpts r (RqHeader hdr:tl) = scanOpts (r { rqHeaders = hdr }) tl
+          scanOpts r (RqBody bdy:tl)   = scanOpts (r { rqBody = bdy}) tl
+          scanOpts r (RqQuery q:tl) =
+              let u' = (rqURI r) { uriQuery = q }
+              in scanOpts (r { rqURI = u' }) tl
+          scanOpts r (RqFragment f:tl) =
+              let u' = (rqURI r) { uriFragment = f }
+              in scanOpts (r { rqURI = u' }) tl
+          scanOpts r [] = r
 
 
 type ResponseCode  = (Int,Int,Int)

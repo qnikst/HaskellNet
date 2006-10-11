@@ -23,6 +23,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 import Control.Monad.Trans
 import System.IO
+import System.IO.Unsafe (unsafeInterleaveIO)
 import Network
 
 
@@ -51,7 +52,15 @@ crlf = BS.pack "\r\n"
 instance BSStream Handle where
 #if defined(__GLASGOW_HASKELL__)
     bsGetLine = BS.hGetLine
-    bsGetLines = BS.hGetLines
+    -- The following definitions came from original fps code because 
+    -- base-2.0 does not provide BS.hGetLines.
+    bsGetLines h = go 
+        where go = unsafeInterleaveIO $ do e <- hWaitForInput h waiting
+                                           if e
+                                             then do x <- BS.hGetLine h
+                                                     xs <- go
+                                                     return (x:xs)
+                                             else return []
     bsGetNonBlocking = BS.hGetNonBlocking
 #endif
     bsGetContents = BS.hGetContents
