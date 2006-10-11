@@ -15,7 +15,7 @@
 -- 
 
 module Text.JSON
-    ( JsonTypable(..), Jsonable(..)
+    ( Jsonable(..)
     , JsonNode(..)
     , parse, parse', toDoc, toDocPP, pp)
 where
@@ -32,6 +32,8 @@ import Data.ByteString.Char8 (ByteString, pack, unpack)
 import qualified Data.ByteString.Char8 as BS
 
 class JsonTypable a where
+
+class Jsonable a where
     fromJson :: JsonNode -> a
     toJson :: a -> JsonNode
     fromJsonList :: JsonNode -> [a]
@@ -40,7 +42,6 @@ class JsonTypable a where
     fromJsonList _         = error "type mismatch"
     toJsonList = Array . map toJson
 
-class (JsonTypable a) => Jsonable a where
     jRead :: String -> a
     jShow :: a -> String
     jReadList :: String -> [a]
@@ -51,60 +52,13 @@ class (JsonTypable a) => Jsonable a where
     jReadList = fromJsonList . parse
     jShowList = show . toDoc . toJsonList
 
-instance JsonTypable Char where
+instance Jsonable Char where
     fromJson = undefined
     toJson = undefined
     fromJsonList (String s) = s
     fromJsonList (Array s)  = map fromJson s
     fromJsonList _          = error "type mismatch"
     toJsonList = String
-
-instance JsonTypable ByteString where
-    fromJson (String s) = pack s
-    fromJson _          = error "type mismatch"
-    toJson = String . unpack
-
-instance JsonTypable Integer where
-    fromJson (Number n) = floor n
-    fromJson _          = error "type mismatch"
-    toJson = Number . fromIntegral
-
-instance JsonTypable Double where
-    fromJson (Number n) = n
-    fromJson _          = error "type mismatch"
-    toJson = Number
-
-instance (JsonTypable a) => JsonTypable (M.Map String a) where
-    fromJson (Object m) = M.map fromJson m
-    fromJson _          = error "type mismatch"
-    toJson = Object . M.map toJson
-
-instance (JsonTypable a) => JsonTypable [(String, a)] where
-    fromJson (Object m) = M.toList $ M.map fromJson m
-    fromJson _          = error "type mismatch"
-    toJson = Object . M.map toJson . M.fromList
-
-instance (JsonTypable a) => JsonTypable [a] where
-    fromJson a = fromJsonList a
-    toJson a   = toJsonList a
-
-instance JsonTypable Bool where
-    fromJson (Bool b) = b
-    fromJson _        = error "type mismatch"
-    toJson = Bool
-
-instance (JsonTypable a) => JsonTypable (Maybe a) where
-    fromJson Null = Nothing
-    fromJson a    = Just $ fromJson a
-    toJson Nothing  = Null
-    toJson (Just x) = toJson x
-
-instance JsonTypable JsonNode where
-    fromJson = id
-    toJson = id
-
-
-instance Jsonable Char where
     jRead = undefined
     jShow = undefined
     jShowList = show . stringifyString
@@ -113,17 +67,51 @@ instance Jsonable Char where
                     (Array s)  -> map fromJson s
                     _          -> error "type mismatch"
 
-instance Jsonable ByteString
-instance Jsonable Integer
-instance Jsonable Double
-instance Jsonable a => Jsonable (M.Map String a)
-instance Jsonable a => Jsonable [(String, a)]
-instance Jsonable a => Jsonable [a] where
+instance Jsonable ByteString where
+    fromJson (String s) = pack s
+    fromJson _          = error "type mismatch"
+    toJson = String . unpack
+
+instance Jsonable Integer where
+    fromJson (Number n) = floor n
+    fromJson _          = error "type mismatch"
+    toJson = Number . fromIntegral
+
+instance Jsonable Double where
+    fromJson (Number n) = n
+    fromJson _          = error "type mismatch"
+    toJson = Number
+
+instance (Jsonable a) => Jsonable (M.Map String a) where
+    fromJson (Object m) = M.map fromJson m
+    fromJson _          = error "type mismatch"
+    toJson = Object . M.map toJson
+
+instance (Jsonable a) => Jsonable [(String, a)] where
+    fromJson (Object m) = M.toList $ M.map fromJson m
+    fromJson _          = error "type mismatch"
+    toJson = Object . M.map toJson . M.fromList
+
+instance (Jsonable a) => Jsonable [a] where
+    fromJson a = fromJsonList a
+    toJson a   = toJsonList a
     jRead a = jReadList a
     jShow a = jShowList a
-instance Jsonable Bool
-instance Jsonable a => Jsonable (Maybe a)
-instance Jsonable JsonNode
+
+instance Jsonable Bool where
+    fromJson (Bool b) = b
+    fromJson _        = error "type mismatch"
+    toJson = Bool
+
+instance (Jsonable a) => Jsonable (Maybe a) where
+    fromJson Null = Nothing
+    fromJson a    = Just $ fromJson a
+    toJson Nothing  = Null
+    toJson (Just x) = toJson x
+
+instance Jsonable JsonNode where
+    fromJson = id
+    toJson = id
 
 
 data JsonNode
@@ -242,10 +230,10 @@ parse' s = case dvNode (derive (Pos "JSON parser" 1 1) s) of
 toDoc :: JsonNode -> Doc
 toDoc = stringifyDoc hsep
 
-toDocPP :: JsonTypable a => a -> Doc
+toDocPP :: Jsonable a => a -> Doc
 toDocPP = stringifyDoc fsep . toJson
 
-pp :: JsonTypable a => a -> String
+pp :: Jsonable a => a -> String
 pp = show . toDocPP
 
 stringifyDoc _ (String s) = stringifyString s
