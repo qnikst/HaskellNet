@@ -36,34 +36,16 @@ class JsonTypable a where
 class Jsonable a where
     fromJson :: JsonNode -> a
     toJson :: a -> JsonNode
-    fromJsonList :: JsonNode -> [a]
-    toJsonList :: [a] -> JsonNode
-    fromJsonList (Array a) = map fromJson a
-    fromJsonList _         = error "type mismatch"
-    toJsonList = Array . map toJson
-
     jRead :: String -> a
     jShow :: a -> String
-    jReadList :: String -> [a]
-    jShowList :: [a] -> String
 
     jRead = fromJson . parse
     jShow = show . toDoc . toJson
-    jReadList = fromJsonList . parse
-    jShowList = show . toDoc . toJsonList
 
-instance Jsonable Char where
-    fromJson = undefined
-    toJson = undefined
-    fromJsonList (String s) = s
-    fromJsonList _          = error "type mismatch"
-    toJsonList = String
-    jRead = undefined
-    jShow = undefined
-    jShowList = show . stringifyString
-    jReadList s = case parse s of
-                    (String s) -> s
-                    _          -> error "type mismatch"
+instance Jsonable String where
+    fromJson (String s) = s
+    fromJson _          = error "type mismatch"
+    toJson = String
 
 instance Jsonable ByteString where
     fromJson (String s) = pack s
@@ -91,10 +73,9 @@ instance (Jsonable a) => Jsonable [(String, a)] where
     toJson = Object . M.map toJson . M.fromList
 
 instance (Jsonable a) => Jsonable [a] where
-    fromJson a = fromJsonList a
-    toJson a   = toJsonList a
-    jRead a = jReadList a
-    jShow a = jShowList a
+    fromJson (Array a) = map fromJson a
+    fromJson _         = error "type mismatch"
+    toJson a   = Array $ map toJson a
 
 instance Jsonable Bool where
     fromJson (Bool b) = b
