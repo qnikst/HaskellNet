@@ -21,6 +21,7 @@ import List
 
 import Text.Packrat.Pos
 
+import Control.Monad
 
 -- Data types
 
@@ -61,6 +62,10 @@ instance Derivs d => Monad (Parser d) where
     return x = Parser (\dvs -> Parsed x dvs (nullError dvs))
     fail msg = Parser (\dvs -> NoParse (msgError (dvPos dvs) msg))
 
+instance Derivs d => MonadPlus (Parser d) where
+    mzero = Parser (\dvs -> NoParse $ nullError dvs)
+    mplus = (<|>)
+
 (<|>) :: Derivs d => Parser d v -> Parser d v -> Parser d v
 (Parser p1) <|> (Parser p2) = Parser parse
     where parse dvs = first dvs (p1 dvs)
@@ -100,6 +105,9 @@ many p = (do { v <- p; vs <- many p; return (v : vs) } )
 
 many1 :: Derivs d => Parser d v -> Parser d [v]
 many1 p = do { v <- p; vs <- many p; return (v : vs) }
+
+count :: Derivs d => Int -> Parser d v -> Parser d [v]
+count n p = sequence $ replicate n p
 
 sepBy1 :: Derivs d => Parser d v -> Parser d vsep -> Parser d [v]
 sepBy1 p psep = do v <- p
@@ -270,6 +278,10 @@ oneOf chs = satisfy anyChar (\c -> c `elem` chs)
 noneOf :: Derivs d => [Char] -> Parser d Char
 noneOf chs = satisfy anyChar (\c -> not (c `elem` chs))
              <?> ("any character not in " ++ show chs)
+
+
+charIf :: Derivs d => (Char -> Bool) -> Parser d Char
+charIf p = satisfy anyChar p <?> "predicate is not satisfied"
 
 string :: Derivs d => String -> Parser d String
 string str = p str <?> show str
