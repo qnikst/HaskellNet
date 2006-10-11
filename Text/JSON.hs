@@ -1,4 +1,4 @@
-{-# OPTIONS -fglasgow-exts #-}
+{-# OPTIONS -fglasgow-exts -fallow-incoherent-instances #-}
 ----------------------------------------------------------------------
 -- |
 -- Module      :  Text.JSON
@@ -79,6 +79,11 @@ instance (JsonTypable a) => JsonTypable (M.Map String a) where
     fromJson _          = error "type mismatch"
     toJson = Object . M.map toJson
 
+instance (JsonTypable a) => JsonTypable [(String, a)] where
+    fromJson (Object m) = M.toList $ M.map fromJson m
+    fromJson _          = error "type mismatch"
+    toJson = Object . M.map toJson . M.fromList
+
 instance (JsonTypable a) => JsonTypable [a] where
     fromJson a = fromJsonList a
     toJson a   = toJsonList a
@@ -112,6 +117,7 @@ instance Jsonable ByteString
 instance Jsonable Integer
 instance Jsonable Double
 instance Jsonable a => Jsonable (M.Map String a)
+instance Jsonable a => Jsonable [(String, a)]
 instance Jsonable a => Jsonable [a] where
     jRead a = jReadList a
     jShow a = jShowList a
