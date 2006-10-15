@@ -24,9 +24,11 @@ import Control.Monad hiding (join)
 import Text.Packrat.Parse
 import Text.Packrat.Pos
 import Text.Printf (printf)
-import Data.Char (ord, isControl)
+import Data.Char (ord, chr, isControl)
 import Data.List (intersperse)
 import qualified Data.Map as M
+import Data.Bits ((.|.), (.&.), shiftL, shiftR)
+import Numeric (readHex, showHex)
 import Text.PrettyPrint.HughesPJ hiding (char)
 import Data.ByteString.Char8 (ByteString, pack, unpack)
 import qualified Data.ByteString.Char8 as BS
@@ -141,9 +143,22 @@ Parser pStr = between (char '"') (char '"') $ many c1
                , char 'n' >> return '\n'
                , char 'r' >> return '\r'
                , char 't' >> return '\t'
-               , char 'u' >> do xs <- count 4 hexDigit
-                                return $ read $ "\"\\x"++xs++"\""
+               , char 'u' >> do xs@[x1,x2,x3,x4] <- count 4 hexDigit
+                                if x1 `elem` "dD" && x2 `elem` "89abAB"
+                                  then surrogatePair x2 x3 x4
+                                  else return $ read $ "'\\x"++xs++"'"
                ]
+          surrogatePair x2 x3 x4 =
+              do char '\\' >> char 'u'
+                 [y1, y2, y3, y4] <- count 4 hexDigit
+                 if y1 `elem` "dD" && y2 `elem` "cCdDeEfF"
+                    then let x2' = fst (head $ readHex [x2]) - 8
+                             y2' = fst (head $ readHex [y2]) - 12
+                             xlow = fst $ head $ readHex [x3, x4]
+                             ylow = fst $ head $ readHex [y3, y4]
+                             shifts = [18, 10, 8, 0]
+                         in return $ chr $ 0x10000 + foldl1 (.|.) (zipWith shiftL [x2',xlow,y2',ylow] shifts)
+                    else fail ""
 
 (>>+) :: Monad m => m [a] -> m [a] -> m [a]
 ma >>+ mb = ma >>= \a -> mb >>= \b -> return (a++b)
@@ -234,8 +249,13 @@ stringifyString s = doubleQuotes $ text $ concatMap f s
           f '\n' = "\\n"
           f '\r' = "\\r"
           f '\t' = "\\t"
-          f c | isControl c = printf "\\u%04x" c
-              | otherwise   = [c]
+          f c | ord c > 0xffff = decSurrogates $ ord c
+              | isControl c    = printf "\\u%04x" c
+              | otherwise      = [c]
+          decSurrogates c =
+              let high = (c - 0x10000) `shiftR` 10 .|. 0xd800
+                  low  = c .&. 0x3ff .|. 0xdc00
+              in "\\u" ++ showHex high ("\\u" ++ showHex low "")
 
 join :: Doc -> [Doc] -> Doc
 join s = fcat . punctuate s
