@@ -2,7 +2,7 @@
 ----------------------------------------------------------------------
 -- |
 -- Module      :  Text.JSON
--- Copyright   :  (c) Jun Mukai 2006
+-- Copyright   :  (c) Masahiro Sakai 2006, Jun Mukai 2006
 -- License     :  BSD-style (see the file LICENSE)
 -- 
 -- Maintainer  :  mukai@jmuk.org

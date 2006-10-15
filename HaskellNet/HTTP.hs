@@ -1,7 +1,7 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  HaskellNet.HTTP
--- Copyright   :  (c) Warrick Gray 2002, Bjorn Bringert 2003-2005
+-- Copyright   :  (c) Warrick Gray 2002, Bjorn Bringert 2003-2005, Jun Mukai 2006
 -- License     :  BSD
 -- 
 -- Maintainer  :  bjorn@bringert.net
