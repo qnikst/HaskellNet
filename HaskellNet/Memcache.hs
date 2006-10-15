@@ -1,3 +1,4 @@
+{-# OPTIONS -fglasgow-exts #-}
 ----------------------------------------------------------------------
 -- |
 -- Module      :  HaskellNet.Memcache
@@ -91,14 +92,26 @@ instance Serializable ByteString where
     serialize s | crlf `BS.isSubstringOf` s || '\\' `BS.elem` s =
                     BS.concatMap f s
                 | otherwise = s
-        where f '\\' = pack "\\"
-              f '\r' = pack "\r"
+        where f '\\' = pack "\\\\"
+              f '\r' = pack "\\r"
               f c    = singleton c
     unSerialize s = BS.concat $ concat $ map f $ BS.split '\\' s
         where f s | s == BS.empty = [s]
                   | BS.head s == '\\' = [singleton '\\', BS.tail s]
                   | BS.head s == 'r'  = [singleton '\r', BS.tail s]
                   | otherwise         = [s]
+
+instance Serializable String where
+    serialize = pack . concatMap f
+        where f '\\' = "\\\\"
+              f '\r' = "\\r"
+              f c    = [c]
+    unSerialize = main . unpack
+        where main [] = []
+              main ('\\':'\\':cs) = '\\' : main cs
+              main ('\\':'r':cs)  = '\r' : main cs
+              main (c:cs)         = c : main cs
+
 
 instance Serializable Int
 instance Serializable Word32
