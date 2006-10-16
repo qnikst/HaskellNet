@@ -11,7 +11,7 @@
 -- 
 -- A JSON Parser and Serializer and type classes.
 -- This code is originally written by Masahiro Sakai. 
--- The original code can be seen at http://www.tom.sfc.keio.ac.jp/~sakai/d/?date=20060427#p02 
+-- The original code can be seen at <http://www.tom.sfc.keio.ac.jp/~sakai/d/?date=20060427#p02>
 -- 
 
 module Text.JSON
@@ -41,8 +41,6 @@ import Numeric (readHex, showHex)
 import Text.PrettyPrint.HughesPJ hiding (char)
 import Data.ByteString.Char8 (ByteString, pack, unpack)
 import qualified Data.ByteString.Char8 as BS
-
-class JsonTypable a where
 
 class Jsonable a where
     fromJson :: JsonNode -> a
