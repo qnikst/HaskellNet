@@ -318,8 +318,8 @@ toJsonString s = (encoder s) s
 encoder :: [Word8] -> ([Word8] -> String)
 encoder (0:0:0:_:_) = utf32BEConv
 encoder (_:0:0:0:_) = utf32LEConv
-encoder (0:_:0:_:_) = utf16BEConv
-encoder (_:0:_:0:_) = utf16LEConv
+encoder (0:_:_) = utf16BEConv
+encoder (_:0:_) = utf16LEConv
 encoder _ = utf8Conv
 
 utf8Conv :: [Word8] -> String
@@ -370,19 +370,14 @@ utf16BEConv :: [Word8] -> String
 utf16BEConv = utf16Conv f
     where f c1 c2 = c1 `shiftL` 8 .|. c2
 
-utf32Conv :: (Int -> Int -> Int -> Int -> Int) -> [Word8] -> String
-utf32Conv f (c1:c2:c3:c4:cs) =
-    chr (f (fromIntegral c1) (fromIntegral c2) (fromIntegral c3) (fromIntegral c4)) : utf32Conv f cs
+utf32Conv :: [Int] -> [Word8] -> String
+utf32Conv shifts (c1:c2:c3:c4:cs) =
+    chr (f $ map fromIntegral [c1, c2, c3, c4]) : utf32Conv shifts cs
+    where f cs = foldl1 (.|.) $ zipWith (\c s -> shiftL c s) cs shifts
 utf32Conv _ _ = ""
 
 utf32BEConv :: [Word8] -> String
-utf32BEConv = utf32Conv f
-    where f c1 c2 c3 c4 =
-              foldl1 (.|.) $ zipWith (\c s -> shiftL c s) [c1,c2,c3,c4] shifts
-          shifts = [24, 16, 8, 0]
+utf32BEConv = utf32Conv [24,16,8,0]
 
 utf32LEConv :: [Word8] -> String
-utf32LEConv = utf32Conv f
-    where f c1 c2 c3 c4 =
-              foldl1 (.|.) $ zipWith (\c s -> shiftL c s) [c1,c2,c3,c4] shifts
-          shifts = [0, 8, 16, 24]
+utf32LEConv = utf32Conv [0,8,16,24]
