@@ -66,10 +66,25 @@ instance Jsonable Integer where
     fromJson _          = error "type mismatch"
     toJson = Number . fromIntegral
 
+instance Jsonable Int where
+    fromJson (Number n) = floor n
+    fromJson _          = error "type mismatch"
+    toJson = Number . fromIntegral
+
 instance Jsonable Double where
     fromJson (Number n) = n
     fromJson _          = error "type mismatch"
     toJson = Number
+
+instance Jsonable Float where
+    fromJson (Number n) = realToFrac n
+    fromJson _          = error "type mismatch"
+    toJson = Number . realToFrac
+
+instance Jsonable Rational where
+    fromJson (Number n) = toRational n
+    fromJson _          = error "type mismatch"
+    toJson = Number . fromRational
 
 instance (Jsonable a) => Jsonable (M.Map String a) where
     fromJson (Object m) = M.map fromJson m
