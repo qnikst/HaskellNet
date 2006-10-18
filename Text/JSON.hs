@@ -1,4 +1,4 @@
-{-# OPTIONS -fglasgow-exts -fallow-incoherent-instances #-}
+{-# OPTIONS -fglasgow-exts -fallow-overlapping-instances -fallow-incoherent-instances #-}
 ----------------------------------------------------------------------
 -- |
 -- Module      :  Text.JSON
