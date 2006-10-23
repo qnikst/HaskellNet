@@ -9,12 +9,12 @@ Exposed-modules:
    Text.IMAPParsers,
    Text.Mime,
    Text.JSON,
+   Text.URI,
    HaskellNet.IMAP,
    HaskellNet.SMTP,
    HaskellNet.POP3,
    HaskellNet.HTTP,
    HaskellNet.Memcache,
    HaskellNet.BSStream,
-   HaskellNet.Auth,
-   HaskellNet.URI
+   HaskellNet.Auth
 other-modules:  Text.Packrat.Pos, Text.Packrat.Parse
