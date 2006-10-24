@@ -17,8 +17,8 @@ module Text.URI
     ( URI(..)
     , port'
     , uri, uri'
+    , escape, unescape
     , parseURI, parseURI'
-    , readURI, readURI'
     , portToName, nameToPort
     )
     where
@@ -34,6 +34,7 @@ import Data.Array
 import Data.Char
 import Data.List
 import Data.Maybe
+import Data.Word (Word8)
 import Numeric
 
 import Network.BSD (getServicePortNumber, getServiceByPort, serviceName, servicePort)
@@ -58,12 +59,12 @@ instance Show URI where
         where app_prec = 10
               show' (URI sch host u p port path q f) =
                   [ showScheme sch
-                  , showUserInfo (escape u) (escape p)
-                  , showString $ escape host
+                  , showUserInfo (escape $ map c2w u) (escape $ map c2w p)
+                  , showString $ escape $ map c2w host
                   , showPort port
-                  , showString $ escape path
-                  , showQuery $ escape q
-                  , showFragment $ escape f ]
+                  , showString $ escape $ map c2w path
+                  , showQuery $ escape $ map c2w q
+                  , showFragment $ escape $ map c2w f ]
               showScheme ""      = id
               showScheme s       = showString s . ("://"++)
               showUserInfo "" "" = id
@@ -76,8 +77,12 @@ instance Show URI where
               showQuery q        = ('?':) . showString q
               showFragment ""    = id
               showFragment f     = ('#':) . showFragment f
+              c2w = toEnum . fromEnum
 #endif
 
+-- | Obtain the port number for the URI.  If no port number exists,
+-- port' would like to estimate the port number from the scheme name.
+-- If both failed, it raises an error.
 port' :: URI -> PortNumber
 port' (URI { port = Just p }) = p
 port' (URI { scheme = s })    =
@@ -86,14 +91,8 @@ port' (URI { scheme = s })    =
       Nothing -> error ("no service entries for " ++ s)
 
     
-
-
-readURI' :: URI -> IO ByteString
-readURI' = undefined
-readURI :: URI -> IO String
-readURI = fmap (BS.unpack) . readURI'
-
-
+-- | Parse URI string simiar to 'parseURI'.  The difference is that it
+-- raises an error for the case of parse failed, not returns Nothing.
 uri' :: ByteString -> URI
 uri' u = case dvURI (parse (Pos "<uri>" 1 1) u) of
            Parsed v d' e' -> v
@@ -101,6 +100,8 @@ uri' u = case dvURI (parse (Pos "<uri>" 1 1) u) of
 uri :: String -> URI
 uri = uri' . BS.pack
 
+-- | Parse URI string and returns the result. If the parse is failed,
+-- it simply returns Nothing.
 parseURI :: String -> Maybe URI
 parseURI = parseURI' . BS.pack
 parseURI' :: ByteString -> Maybe URI
@@ -151,13 +152,15 @@ unescape ('%':c1:c2:cs) = chr ((hex c1)*16+(hex c2)) : unescape cs
 unescape (c:cs)         = c : unescape cs
 unescape ""             = ""
 
-escape :: String -> String
-escape "" = ""
-escape (c:cs) | c `elem` validChars = c : escape cs
-              | otherwise           = escChar c ++ escape cs
+escape :: [Word8] -> String
+escape [] = ""
+escape (c:cs) | c' `elem` validChars = c' : escape cs
+              | otherwise            = escChar c ++ escape cs
     where validChars = ['a'..'z']++['A'..'Z']++['0'..'9']++"!$^&*-_=+|/."
-          escChar c  = '%' : map (arr!) [ord c `div` 16, ord c `mod` 16]
+          escChar c  = '%' : map (arr!) [c `div` 16, c `mod` 16]
           arr = listArray (0, 15) "0123456789abcdef"
+          w2c = toEnum . fromEnum
+          c' = w2c c
 
 consURI :: String -- ^ scheme
         -> String -- ^ host name
@@ -176,12 +179,10 @@ pURI :: URIDerivs -> Result URIDerivs URI
 Parser pURI = do sch <- Parser dvScheme
                  char ':'
                  uri <- hierPart sch
-                 uri' <- option uri (do q <- Parser dvQuery
-                                        return $ uri { query = q })
-                 uri'' <- option uri' (do f <- Parser dvFragment
-                                          return $ uri' { fragment = f } )
+                 q <- option "" (Parser dvQuery)
+                 f <- option "" (Parser dvFragment)
                  eof
-                 return $ uri''
+                 return (uri { query = q, fragment = f })
     where hierPart sch = do string "//"
                             ui <- option [] (Parser dvUserInfo)
                             host <- Parser dvHost
@@ -202,8 +203,7 @@ Parser pScheme = do c <- oneOf (['a'..'z']++['A'..'Z'])
                     return (c:rest)
 Parser pHost = many1 (noneOf ":/")
 Parser pPathAbs = char '/' >> Parser dvPath >>= return . ('/':)
-Parser pPath = do pathes <- many1 (noneOf "#?/") `sepBy` char '/'
-                  return $ concat $ intersperse "/" pathes
+Parser pPath = many1 (noneOf "#?")
 Parser pQuery = char '?' >> many1 (noneOf "#")
 Parser pFragment = char '#' >> many1 anyChar
 
