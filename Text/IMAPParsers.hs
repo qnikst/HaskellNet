@@ -64,6 +64,7 @@ data Attribute = Noinferiors
                | Noselect
                | Marked
                | Unmarked
+               | OtherAttr String
                  deriving (Show, Eq)
 
 data MboxUpdate = MboxUpdate { exists :: Maybe Integer
@@ -336,6 +337,7 @@ pListLine list =
                         , string "Noselect" >> return Noselect
                         , string "Marked" >> return Marked
                         , string "Unmarked" >> return Unmarked
+                        , many atomChar >>= return . OtherAttr
                         ]
           parseAttrs = do char '('
                           attrs <- parseAttr `sepBy` space

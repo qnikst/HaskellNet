@@ -30,7 +30,10 @@ module HaskellNet.IMAP
     , list, lsub, status, append
       -- ** selected state commands
     , check, close, expunge
-    , search, fetch, store, copy
+    , search, store, copy
+      -- * fetch commands
+    , fetch, fetchHeader, fetchSize, fetchHeaderFields, fetchHeaderFieldsNot
+    , fetchFlags, fetchR, fetchByString, fetchByStringR
       -- * other types
     , Flag(..), Attribute(..), MailboxStatus(..)
     , SearchQuery(..), FlagsQuery(..)
