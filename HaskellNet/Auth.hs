@@ -62,8 +62,8 @@ hmacMD5 text key = hash $ okey ++ hash (ikey ++ map (toEnum.fromEnum) text)
 plain :: UserName -> Password -> String
 plain user pass = b64Encode $ concat $ intersperse "\0" [user, user, pass]
 
-login :: UserName -> Password -> String
-login user pass = unwords [b64Encode user, b64Encode pass]
+login :: UserName -> Password -> (String, String)
+login user pass = (b64Encode user, b64Encode pass)
 
 cramMD5 :: String -> UserName -> Password -> String
 cramMD5 challenge user pass =
@@ -71,5 +71,5 @@ cramMD5 challenge user pass =
 
 auth :: AuthType -> String -> UserName -> Password -> String
 auth PLAIN    _ u p = plain u p
-auth LOGIN    _ u p = login u p
+auth LOGIN    _ u p = let (u', p') = login u p in unwords [u', p']
 auth CRAM_MD5 c u p = cramMD5 c u p

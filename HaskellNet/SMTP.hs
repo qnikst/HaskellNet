@@ -175,7 +175,7 @@ sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
        bsPutCrLf conn $ BS.pack passB64
        parseResponse conn
     where command = BS.pack $ "AUTH LOGIN"
-          (userB64, ' ':passB64) = break isSpace $ login username password
+          (userB64, passB64) = login username password
 sendCommand (SMTPC conn _) (AUTH at username password) =
     do bsPutCrLf conn command
        (code, msg) <- parseResponse conn

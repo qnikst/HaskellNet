@@ -152,7 +152,7 @@ sendCommand (POP3C conn _) (AUTH LOGIN user pass) =
        bsGetContents conn
        bsPutCrLf conn $ BS.pack passB64
        response conn
-    where (userB64, ' ':passB64) = break isSpace $ A.login user pass
+    where (userB64, passB64) = A.login user pass
 sendCommand (POP3C conn _) (AUTH at user pass) =
     do bsPutCrLf conn $ BS.pack $ unwords ["AUTH", show at]
        c <- bsGetContents conn

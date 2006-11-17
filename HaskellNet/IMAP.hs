@@ -254,7 +254,7 @@ authenticate conn@(IMAPC s mbox nr) LOGIN user pass =
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
-    where (userB64, ' ':passB64) = break isSpace $ A.login user pass
+    where (userB64, passB64) = A.login user pass
 authenticate conn@(IMAPC s mbox nr) at user pass =
     do num <- readIORef nr
        c <- sendCommand' conn $ "AUTHENTICATE " ++ show at
