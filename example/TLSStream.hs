@@ -63,7 +63,6 @@ doWhile cond execute =
           
 
 instance BSStream (TlsSession t) where
-#if defined(__GLASGOW_HASKELL__)
     bsGetLine sess@(TlsSession s _ buf) =
         do doWhile (readIORef buf >>= return . BS.notElem '\n')
                        (extendBuf sess)
@@ -71,22 +70,6 @@ instance BSStream (TlsSession t) where
            let (line, rest) =  BS.span (/='\n') bufstr'
            writeIORef buf $ BS.tail rest
            return line
-    bsGetLines sess = fmap BS.lines $ bsGetContents sess
-    bsGetNonBlocking sess@(TlsSession s h buf) len =
-        do doWhile (do r <- hWaitForInput h waiting
-                       l <- fmap BS.length $ readIORef buf
-                       return (r && l < len))
-                   (extendBuf sess)
-           bufstr' <- readIORef buf
-           let (r, bufstr'') = BS.splitAt len bufstr'
-           writeIORef buf bufstr''
-           return r
-#endif
-    bsGetContents sess@(TlsSession s h buf) =
-        do doWhile (hWaitForInput h waiting) (extendBuf sess)
-           bufstr <- readIORef buf
-           writeIORef buf BS.empty
-           return bufstr
     bsGet sess@(TlsSession s _ buf) len =
         do doWhile (readIORef buf >>= return . (<len) . BS.length)
                    (extendBuf sess)

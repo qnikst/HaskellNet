@@ -171,7 +171,7 @@ connectIMAP hostname = connectIMAPPort hostname 143
 
 connectStream :: BSStream s => s -> IO (IMAPConnection s)
 connectStream s =
-    do msg <- bsGetContents s
+    do msg <- bsGetLine s
        unless (and $ BS.zipWith (==) msg (BS.pack "* OK")) $ fail "cannot connect to the server"
        mbox <- newIORef emptyMboxInfo
        c <- newIORef 0
@@ -186,7 +186,7 @@ sendCommand' (IMAPC s mbox nr) cmdstr =
     do num <- readIORef nr 
        bsPutCrLf s $ BS.pack $ show6 num ++ " " ++ cmdstr
        modifyIORef nr (+1)
-       bsGetContents s
+       getResponse s
 
 show6 n | n > 100000 = show n
         | n > 10000  = '0' : show n
@@ -206,6 +206,29 @@ sendCommand imapc@(IMAPC _ mbox nr) cmdstr pFunc =
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
+
+getResponse :: BSStream s => s -> IO ByteString
+getResponse s = fmap unlinesCRLF getLs
+    where unlinesCRLF = BS.concat . concatMap (:[crlf]) 
+          getLs = 
+              do l <- fmap strip $ bsGetLine s
+                 case () of
+                   _ | isLiteral l ->  do l' <- getLiteral l (getLitLen l)
+                                          ls <- getLs
+                                          return (l' : ls)
+                     | isTagged l -> fmap (l:) getLs
+                     | otherwise -> return [l]
+          getLiteral l len = 
+              do lit <- bsGet s len
+                 l2 <- fmap strip $ bsGetLine s
+                 let l' = BS.concat [l, crlf, lit, l2]
+                 if isLiteral l2
+                   then getLiteral l' (getLitLen l2)
+                   else return l'
+          crlf = BS.pack "\r\n"
+          isLiteral l = BS.last l == '}' && BS.last (fst (BS.spanEnd isDigit (BS.init l))) == '{'
+          getLitLen = read . BS.unpack . snd . BS.spanEnd isDigit . BS.init
+          isTagged l = BS.head l == '*' && BS.head (BS.tail l) == ' '
 
 mboxUpdate :: IORef MailboxInfo -> MboxUpdate -> IO ()
 mboxUpdate mbox (MboxUpdate exists recent) =
@@ -244,9 +267,9 @@ authenticate conn@(IMAPC s mbox nr) LOGIN user pass =
     do num <- readIORef nr
        sendCommand' conn "AUTHENTICATE LOGIN"
        bsPutCrLf s $ BS.pack userB64
-       bsGetContents s
+       bsGetLine s
        bsPutCrLf s $ BS.pack passB64
-       buf <- bsGetContents s
+       buf <- getResponse s
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
          OK _ _        -> do mboxUpdate mbox $ mboxUp
@@ -263,7 +286,7 @@ authenticate conn@(IMAPC s mbox nr) at user pass =
                then b64Decode $ BS.unpack $ head $ dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
                else ""
        bsPutCrLf s $ BS.pack $ A.auth at challenge user pass
-       buf <- bsGetContents s
+       buf <- getResponse s
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
          OK _ _        -> do mboxUpdate mbox $ mboxUp
@@ -312,7 +335,7 @@ appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags time =
                          , fstr, tstr,  "{" ++ show len ++ "}"])
        unless (BS.null buf || (BS.head buf /= '+')) $ fail "illegal server response"
        mapM_ (bsPutCrLf s) mailLines
-       buf <- bsGetContents s
+       buf <- getResponse s
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf
        case resp of
          OK _ _ -> mboxUpdate mbInfo mboxUp
@@ -440,3 +463,6 @@ dateToStringIMAP date = concat $ intersperse "-" [show2 $ ctDay date
           showMonth October   = "Oct"
           showMonth November  = "Nov"
           showMonth December  = "Dec"
+
+strip :: ByteString -> ByteString
+strip = fst . BS.spanEnd isSpace . BS.dropWhile isSpace

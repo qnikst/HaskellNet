@@ -5,6 +5,7 @@ module DebugStream
     ( connectD
     , connectDPort
     , DebugStream
+    , withDebug
     , module BS
     )
     where
@@ -40,32 +41,12 @@ connectDPort host port =
 
 
 instance (BSStream s) => BSStream (DebugStream s) where
-#if defined(__GLASGOW_HASKELL__)
     bsGetLine (DS h) =
         do hPutStr stderr "reading with bsGetLine..."
            hFlush stderr
            l <- bsGetLine h
            BS.hPutStrLn stderr l
            return l
-    bsGetLines (DS h) =
-        do hPutStr stderr "reading with bsGetLines..."
-           hFlush stderr
-           ls <- bsGetLines h
-           mapM_ (BS.hPutStrLn stderr) ls
-           return ls
-    bsGetNonBlocking (DS h) len =
-        do hPutStr stderr $ "reading with bsGetNonBlocking "++show len++"..."
-           hFlush stderr
-           bl <- bsGetNonBlocking h len
-           BS.hPutStrLn stderr bl
-           return bl
-#endif
-    bsGetContents (DS h) =
-        do hPutStr stderr "reading with bsGetContents..."
-           hFlush stderr
-           cont <- bsGetContents h
-           BS.hPutStrLn stderr cont
-           return cont
     bsGet (DS h) len =
         do hPutStr stderr $ "reading with bsGet "++show len++"..."
            hFlush stderr

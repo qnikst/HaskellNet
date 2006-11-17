@@ -41,7 +41,7 @@ import Control.Exception
 import Control.Monad (unless)
 
 import Data.List (intersperse)
-import Data.Char (chr, ord, isSpace)
+import Data.Char (chr, ord, isSpace, isDigit)
 
 import HaskellNet.Auth
 
@@ -149,13 +149,16 @@ connectStream st =
        return (SMTPC st (tail $ BS.lines msg))
 
 parseResponse :: BSStream s => s -> IO (ReplyCode, ByteString)
-parseResponse st = do lst <- readLines
-                      return (fst $ last lst, BS.unlines $ map snd lst)
+parseResponse st = 
+    do lst <- readLines
+       let code = read $ BS.unpack $ BS.takeWhile isSpace $ last lst
+       return (code, BS.unlines $ map (BS.tail . BS.dropWhile isDigit) lst)
     where readLines =
-              do ls <- bsGetLines st
-                 return $ map (f . BS.span (flip notElem " -")) ls
-          f (code, msg) = (read $ BS.unpack $ code
-                          ,if BS.length msg > 0 then BS.tail msg else msg)
+              do l <- bsGetLine st
+                 if BS.head (BS.dropWhile isDigit l) == '-'
+                    then do ls <- readLines
+                            return (l:ls)
+                    else return [l]
 
 
 -- | send a method to a server
@@ -206,7 +209,6 @@ sendCommand (SMTPC conn _) meth =
 closeSMTP :: BSStream s => SMTPConnection s -> IO ()
 closeSMTP c@(SMTPC conn _) = do sendCommand c QUIT
                                 bsClose conn
-
 
 -- | 
 -- sending a mail to a server. This is achieved by sendMessage.  If

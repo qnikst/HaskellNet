@@ -147,15 +147,15 @@ sendCommand (POP3C conn _) (TOP msg n) =
     bsPutCrLf conn (BS.pack $ "TOP " ++ show msg ++ " " ++ show n) >> responseML conn
 sendCommand (POP3C conn _) (AUTH LOGIN user pass) =
     do bsPutCrLf conn $ BS.pack "AUTH LOGIN"
-       bsGetContents conn
+       bsGetLine conn
        bsPutCrLf conn $ BS.pack userB64
-       bsGetContents conn
+       bsGetLine conn
        bsPutCrLf conn $ BS.pack passB64
        response conn
     where (userB64, passB64) = A.login user pass
 sendCommand (POP3C conn _) (AUTH at user pass) =
     do bsPutCrLf conn $ BS.pack $ unwords ["AUTH", show at]
-       c <- bsGetContents conn
+       c <- bsGetLine conn
        let challenge =
                if BS.take 2 c == BS.pack "+ "
                then b64Decode $ BS.unpack $ head $ dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c

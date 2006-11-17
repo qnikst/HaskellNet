@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -fglasgow-exts #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  HaskellNet.Stream
@@ -29,12 +28,7 @@ import Network
 
 
 class BSStream h where
-#if defined(__GLASGOW_HASKELL__)
     bsGetLine :: h -> IO ByteString
-    bsGetLines :: h -> IO [ByteString]
-    bsGetNonBlocking :: h -> Int -> IO ByteString
-#endif
-    bsGetContents :: h -> IO ByteString
     bsGet :: h -> Int -> IO ByteString
     bsPut :: h -> ByteString -> IO ()
     bsPuts :: h -> [ByteString] -> IO ()
@@ -55,25 +49,7 @@ blocklen = 4096
 waiting = 500 -- miliseconds
 
 instance BSStream Handle where
-#if defined(__GLASGOW_HASKELL__)
     bsGetLine = BS.hGetLine
-    -- The following definitions came from original fps code because 
-    -- base-2.0 does not provide BS.hGetLines.
-    bsGetLines h = go 
-        where go = unsafeInterleaveIO $ do e <- hWaitForInput h waiting
-                                           if e
-                                             then do x <- BS.hGetLine h
-                                                     xs <- go
-                                                     return (x:xs)
-                                             else return []
-    bsGetNonBlocking = BS.hGetNonBlocking
-#endif
-    bsGetContents h = getIfReady []
-        where getIfReady ls =
-                  do f <- hWaitForInput h waiting
-                     if f then do l <- bsGetNonBlocking h blocklen
-                                  getIfReady (l:ls)
-                          else return $ BS.concat ls
     bsGet = BS.hGet
     bsPut h s = BS.hPut h s >> bsFlush h
     bsPutStrLn  h s = BS.hPutStrLn h s >> bsFlush h
