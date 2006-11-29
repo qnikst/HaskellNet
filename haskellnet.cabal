@@ -10,6 +10,7 @@ Exposed-modules:
    Text.Mime,
    Text.JSON,
    Text.URI,
+   Text.Bencode,
    HaskellNet.IMAP,
    HaskellNet.SMTP,
    HaskellNet.POP3,
