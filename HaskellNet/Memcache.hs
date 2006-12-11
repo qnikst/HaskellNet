@@ -16,7 +16,7 @@ module HaskellNet.Memcache
     ( -- * Types
       Memcache(..)
     , Status(..)
-    , Serializable(..)
+    , Escapable(..)
       -- * create connections
     , connect
     , connectServer
@@ -82,44 +82,56 @@ type Flags = Integer
 type Expire = Integer
 type Bytes = Integer
 
-class (Show a, Read a) => Serializable a where
-    serialize :: a -> ByteString
-    unSerialize :: ByteString -> a
-    serialize = pack . show
-    unSerialize = read . unpack
+class Escapable a where
+    escape :: a -> ByteString
+    unEscape :: ByteString -> a
 
-instance Serializable ByteString where
-    serialize s | crlf `BS.isSubstringOf` s || '\\' `BS.elem` s =
+instance Escapable ByteString where
+    escape s | crlf `BS.isSubstringOf` s || '\\' `BS.elem` s =
                     BS.concatMap f s
                 | otherwise = s
         where f '\\' = pack "\\\\"
               f '\r' = pack "\\r"
               f c    = singleton c
-    unSerialize s = BS.concat $ concat $ map f $ BS.split '\\' s
+    unEscape s = BS.concat $ concat $ map f $ BS.split '\\' s
         where f s | s == BS.empty = [s]
                   | BS.head s == '\\' = [singleton '\\', BS.tail s]
                   | BS.head s == 'r'  = [singleton '\r', BS.tail s]
                   | otherwise         = [s]
 
-instance Serializable String where
-    serialize = pack . concatMap f
+instance Escapable String where
+    escape = pack . concatMap f
         where f '\\' = "\\\\"
               f '\r' = "\\r"
               f c    = [c]
-    unSerialize = main . unpack
+    unEscape = main . unpack
         where main [] = []
               main ('\\':'\\':cs) = '\\' : main cs
               main ('\\':'r':cs)  = '\r' : main cs
               main (c:cs)         = c : main cs
 
 
-instance Serializable Int
-instance Serializable Word32
-instance Serializable Word64
-instance Serializable Integer
-instance Serializable Char
-instance Serializable Float
-instance Serializable Double
+instance Escapable Int where
+    escape = pack . show
+    unEscape = read . unpack
+instance Escapable Word32 where
+    escape = pack . show
+    unEscape = read . unpack
+instance Escapable Word64 where
+    escape = pack . show
+    unEscape = read . unpack
+instance Escapable Integer where
+    escape = pack . show
+    unEscape = read . unpack
+instance Escapable Char where
+    escape = pack . show
+    unEscape = read . unpack
+instance Escapable Float where
+    escape = pack . show
+    unEscape = read . unpack
+instance Escapable Double where
+    escape = pack . show
+    unEscape = read . unpack
 
 crlf = pack "\r\n"
 sp   = singleton ' '
@@ -183,11 +195,11 @@ getsS m ks = fmap (map f) $ getsFull m ks
     where f (Just (_,_,bs)) = bs
           f _               = BS.empty
 
-get :: (BSStream s, Serializable v) => Memcache s -> String -> IO (Maybe v)
+get :: (BSStream s, Escapable v) => Memcache s -> String -> IO (Maybe v)
 get m k = fmap head $ gets m [k]
-gets :: (BSStream s, Serializable v) => Memcache s -> [String] -> IO [Maybe v]
+gets :: (BSStream s, Escapable v) => Memcache s -> [String] -> IO [Maybe v]
 gets m ks = fmap (map (>>= f)) $ getsFull m ks
-    where f (_,_,bs) = Just $ unSerialize bs
+    where f (_,_,bs) = Just $ unEscape bs
 
 getFull :: BSStream s => Memcache s -> String -> IO (Maybe (Flags, Expire, ByteString))
 getFull m k = fmap head (getsFull m [k])
