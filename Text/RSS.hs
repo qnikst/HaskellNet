@@ -1,8 +1,7 @@
-{-# OPTIONS -fglasgow-exts -fallow-overlapping-instances -fallow-incoherent-instances #-}
 ----------------------------------------------------------------------
 -- |
--- Module      :  Text.JSON
--- Copyright   :  (c) Masahiro Sakai 2006, Jun Mukai 2006
+-- Module      :  Text.RSS
+-- Copyright   :  (c) Jun Mukai 2006
 -- License     :  BSD-style (see the file LICENSE)
 -- 
 -- Maintainer  :  mukai@jmuk.org
@@ -23,12 +22,7 @@ import Text.PrettyPrint.HughesPJ
 import Data.Time.LocalTime (LocalTime, ZonedTime(..), TimeZone(..), formatTime)
 import System.Locale (defaultTimeLocale)
 
-data RSSItem = RSSItem { title :: String
-                       , link :: String
-                       , description :: Maybe String
-                       , content :: Maybe String
-                       , dc :: [DublinCore]
-                       }
+data RSSItem = RSSItem String String (Maybe String) (Maybe String) [DublinCore]
 
 data RSSChannel = RSSChannel { chTitle :: String
                              , chLink :: String
@@ -46,12 +40,20 @@ data DublinCore = DCCreator String
                 | DCSubject String
 
 class RSSITEM item where
-    fromRSS :: RSSItem -> item
-    toRSS :: item -> RSSItem
+    title :: item -> String
+    link :: item -> String
+    description :: item -> Maybe String
+    content :: item -> Maybe String
+    dc :: item -> [DublinCore]
+    description = const Nothing
+    content = const Nothing
 
 instance RSSITEM RSSItem where
-    fromRSS = id
-    toRSS = id
+    title (RSSItem t _ _ _ _) = t
+    link (RSSItem _ l _ _ _)  = l
+    description (RSSItem _ _ d _ _) = d
+    content (RSSItem _ _ _ c _) = c
+    dc (RSSItem _ _ _ _ d) = d
 
 
 rdfAttrs = [ ("xmlns", "http://purl.org/rss/1.0/")
@@ -66,12 +68,11 @@ renderRSSFull :: RSSITEM item =>
                  String -> [(String, String)] -> RSSChannel -> [item] -> String
 renderRSSFull hdr attrs ch items =
     show (text hdr $+$ tagDoc "rdf:RDF" attrs (channel:image:itemDocs))
-    where ritems = map toRSS items
-          channel = channelToDoc ch ritems
+    where channel = channelToDoc ch items
           image = maybeDoc imageToDoc (chImage ch)
-          itemDocs = map rssItemToDoc ritems
+          itemDocs = map rssItemToDoc items
 
-channelToDoc :: RSSChannel -> [RSSItem] -> Doc
+channelToDoc :: RSSITEM item => RSSChannel -> [item] -> Doc
 channelToDoc (RSSChannel cht chl chdesc chdcs _) items = 
     tagDoc "channel" [("rdf:about", chl)]
                ([ textTag "title" cht
@@ -86,16 +87,21 @@ imageToDoc (RSSImage imuri imt iml) =
     tagDoc "image" [("rdf:resource", imuri)]
         [textTag "title" imt, textTag "link" iml, textTag "url" imuri]
 
-rssItemToResource :: RSSItem -> Doc
+rssItemToResource :: RSSITEM item => item -> Doc
 rssItemToResource item = tagDoc' "rdf:li" [("rdf:resource", link item)]
-rssItemToDoc :: RSSItem -> Doc
-rssItemToDoc (RSSItem t l desc cont dcs) =
+rssItemToDoc :: RSSITEM item => item -> Doc
+rssItemToDoc item =
     tagDoc "item" [("rdf:about", l)] ([ textTag "title" t
                                       , textTag "link" l
                                       , maybeDoc (textTag "description") desc
                                       , maybeDoc contentEncoded cont
                                       ] ++ map dcToDoc dcs)
-        where contentEncoded v = tagDoc "content:encoded" [] $ 
+        where t = title item
+              l = link item
+              desc = description item
+              cont = content item
+              dcs = dc item
+              contentEncoded v = tagDoc "content:encoded" [] $ 
                                  [text "<![CDATA[" <> text v <> text "]]>"]
  
 dcToDoc :: DublinCore -> Doc
