@@ -13,6 +13,20 @@
 -- 
 
 module Text.Atom
+    ( Text(..), EntryContent(..), stringContent, xhtmlContent, binaryContent, srcContent
+    , Person, mkPerson
+    , Feed, mkFeed, Entry, mkEntry
+    , Category, mkCategory, Generator, mkGenerator, defaultGenerator
+    , Link, LinkRelation(..), mkLink, selfLink
+    , Attr, get, set, update, has, add, howMany, set', get', delete
+    , AName(..), AUri(..), AEmail(..), AAuthor(..), ACategory(..)
+    , AContributor(..), AGenerator(..), AIcon(..), AId(..), ALink(..)
+    , ALogo(..), ARights(..), ASubtitle(..), ATitle(..), AUpdated(..)
+    , AEntires(..), ACntent(..), APublished(..), ASource(..), ASummary(..)
+    , ATerm(..), AScheme(..), ALabel(..), AVersion(..), AHref(..), ARel(..)
+    , AMediatype(..), AHreflang(..), HLength(..)
+    , PERSON(..), CATEGORY(..), GENERATOR(..), LINK(..), FEED(..), ENTRY(..)
+    )
 where
 
 import Data.List (genericLength, nubBy, isPrefixOf)
