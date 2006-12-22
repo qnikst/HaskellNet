@@ -12,6 +12,7 @@ Exposed-modules:
    Text.URI,
    Text.Bencode,
    Text.RSS,
+   Text.Atom,
    HaskellNet.IMAP,
    HaskellNet.SMTP,
    HaskellNet.POP3,
