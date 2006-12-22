@@ -88,6 +88,8 @@
 --
 -----------------------------------------------------------------------------
 module HaskellNet.HTTP (
+    Result(..),
+    ConnError(..),
     -- ** Constants
     httpVersion,
     
