@@ -22,9 +22,9 @@ module Text.Atom
     , AName(..), AUri(..), AEmail(..), AAuthor(..), ACategory(..)
     , AContributor(..), AGenerator(..), AIcon(..), AId(..), ALink(..)
     , ALogo(..), ARights(..), ASubtitle(..), ATitle(..), AUpdated(..)
-    , AEntires(..), ACntent(..), APublished(..), ASource(..), ASummary(..)
+    , AEntries(..), AContent(..), APublished(..), ASource(..), ASummary(..)
     , ATerm(..), AScheme(..), ALabel(..), AVersion(..), AHref(..), ARel(..)
-    , AMediatype(..), AHreflang(..), HLength(..)
+    , AMediatype(..), AHreflang(..), ALength(..)
     , PERSON(..), CATEGORY(..), GENERATOR(..), LINK(..), FEED(..), ENTRY(..)
     )
 where
