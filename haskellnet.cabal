@@ -21,4 +21,4 @@ Exposed-modules:
    HaskellNet.Memcache,
    HaskellNet.BSStream,
    HaskellNet.Auth
-other-modules:  Text.Packrat.Pos, Text.Packrat.Parse
+other-modules: Data.Record, Text.Packrat.Pos, Text.Packrat.Parse

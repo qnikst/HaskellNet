@@ -29,6 +29,7 @@ module Text.Atom
     )
 where
 
+import Data.Record
 import Data.List (genericLength, nubBy, isPrefixOf)
 import Data.Char (isSpace)
 import Data.Maybe
@@ -184,38 +185,6 @@ mkLink :: String -> Link
 mkLink s = Link s Alternate Nothing Nothing Nothing Nothing
 selfLink :: String -> Link
 selfLink s = Link s Self Nothing Nothing Nothing Nothing
-
-------------------------------------------------------------
--- record accessors
-
-data Attr r v = Attr { getter :: r -> v
-                     , setter :: r -> v -> r
-                     }
-
-get :: Attr r v -> r -> v
-get = getter
-set :: Attr r v -> v -> r -> r
-set a v r = setter a r v
-update :: Attr r v -> (v -> v) -> r -> r
-update a f r = set a (f $ get a r) r
-
-has :: (Foldable t) => Attr r (t v) -> r -> Bool
-has a r = howMany a r > 0
-
-add :: (Alternative t) => Attr r (t v) -> v -> r -> r
-add a v r = update a (pure v <|>) r
-
-howMany :: (Foldable t, Integral n) => Attr r (t v) -> r -> n
-howMany a r = getSum $ foldMap (const (Sum 1)) $ get a r
-
-set' :: (Applicative t, Foldable t) => Attr r (t v) -> v -> r -> r
-set' a v r | has a r   = r
-           | otherwise = set a (pure v) r
-get' :: (Foldable t) => Attr r (t v) -> r -> v
-get' a r = foldr1 const $ get a r
-
-delete :: (Alternative t) => Attr r (t v) -> r -> r
-delete a r = set a empty r
 
 ------------------------------------------------------------
 -- field class/instance declarations
