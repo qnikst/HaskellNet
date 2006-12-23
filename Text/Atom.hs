@@ -9,7 +9,7 @@
 -- Stability   :  experimental
 -- Portability :  portable
 -- 
--- Atom Syndication format Printer Library (printing such like Text.HTML)
+-- Atom Syndication format Parser/Printer Library using HaXml
 -- 
 
 module Text.Atom
