@@ -39,6 +39,7 @@ data RSSItem = RSSItem { itemTitle :: String
                        }
 
 data RSSChannel = RSSChannel { chTitle :: String
+                             , chURI :: String
                              , chLink :: String
                              , chDescription :: String
                              , chDC ::  [DublinCore]
@@ -66,7 +67,7 @@ class AUri r v | r -> v where uri :: Attr r v
 class ( ATitle r String, ALink r String, ADescription r (Maybe String)
       , AContent r (Maybe String), ADC r [DublinCore]) 
     => RSSITEM r
-class ( ATitle r String, ALink r String, ADescription r String
+class ( ATitle r String, AUri r String, ALink r String, ADescription r String
       , ADC r [DublinCore], AImage r (Maybe RSSImage), AItems r [RSSItem])
     => RSSCHANNEL r
 class (AUri r String, ATitle r String, ALink r String) => RSSIMAGE r
@@ -91,6 +92,9 @@ instance RSSITEM RSSItem
 instance ATitle RSSChannel String where
     title = Attr chTitle setter
         where setter r v = r { chTitle = v }
+instance AUri RSSChannel String where
+    uri = Attr chTitle setter
+        where setter r v = r { chURI = v }
 instance ALink RSSChannel String where
     link = Attr chLink setter
         where setter r v = r { chLink = v }
@@ -122,6 +126,7 @@ fromText' :: String -> [Content] -> [String]
 fromText' t = map (concat . fst . many fromText) . dropWhile null . map (tag t /> keep)
 toText' :: String -> String -> Content
 toText' tag cont = CElem $ Elem tag [] [CString False cont]
+toText'' tag cont = CElem $ Elem tag [] [CString True cont]
 
 instance XmlContent RSSImage where
     fromElem (CElem (Elem "image" ats cs) : rest) =
@@ -181,18 +186,19 @@ instance XmlContent RSSItem where
         where tt = toText' "title" t
               lt = toText' "link" l
               dt = d >>= return . toText' "description"
-              ct = c >>= return . toText' "content:encoded"
+              ct = c >>= return . toText'' "content:encoded"
               dct = concatMap toElem dcs
 
 instance XmlContent RSSChannel where
     fromElem (CElem (Elem "channel" ats cs) : rest) =
-        (Just $ RSSChannel t l d dcs Nothing [], rest)
+        (Just $ RSSChannel t u l d dcs Nothing [], rest)
         where t = concat $ fromText' "title" cs
+              u = definiteA fromAttrToStr "about" "" ats
               l = concat $ fromText' "link" cs
               d = concat $ fromText' "description" cs
               dcs = fst $ many fromElem $ concatMap (tagWith (isPrefixOf "dc:")) cs
     fromElem rest = (Nothing, rest)
-    toElem (RSSChannel t l d dcs im is) = [CElem $ Elem "channel" [("rdf:about", str2attr l)] ([tt, lt, dt, ist]++imt++dct)]
+    toElem (RSSChannel t u l d dcs im is) = [CElem $ Elem "channel" [("rdf:about", str2attr u)] ([tt, lt, dt, ist]++imt++dct)]
         where tt = toText' "title" t
               lt = toText' "link" l
               dt = toText' "description" d
