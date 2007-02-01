@@ -22,6 +22,7 @@ module Text.RSS
     )
 where
 
+import Data.Char (ord)
 import Data.Record
 import Data.List (isPrefixOf)
 import Data.Maybe
@@ -135,7 +136,7 @@ instance XmlContent RSSImage where
               l = concat $ fromText' "link" cs
               u' = concat $ fromText' "url" cs
     fromElem rest = (Nothing, rest)
-    toElem (RSSImage u t l) = [CElem $ Elem "image" [about] $ zipWith toText' ["title", "link", "url"] [u, t, l]]
+    toElem (RSSImage u t l) = [CElem $ escape $ Elem "image" [about] $ zipWith toText' ["title", "link", "url"] [u, t, l]]
         where about = ("rdf:resource", str2attr u)
 
 instance XmlContent DublinCore where
@@ -182,7 +183,7 @@ instance XmlContent RSSItem where
               c = listToMaybe $ fromText' "content:encoded" cs
               dcs = fst $ many fromElem $ concatMap (tagWith (isPrefixOf "dc:")) cs
     fromElem rest = (Nothing, rest)
-    toElem (RSSItem t l d c dcs) = [CElem $ Elem "item" [("rdf:about", str2attr l)] ([tt, lt] ++ catMaybes [dt, ct] ++ dct)]
+    toElem (RSSItem t l d c dcs) = [CElem $ escape $ Elem "item" [("rdf:about", str2attr l)] ([tt, lt] ++ catMaybes [dt, ct] ++ dct)]
         where tt = toText' "title" t
               lt = toText' "link" l
               dt = d >>= return . toText' "description"
@@ -198,7 +199,7 @@ instance XmlContent RSSChannel where
               d = concat $ fromText' "description" cs
               dcs = fst $ many fromElem $ concatMap (tagWith (isPrefixOf "dc:")) cs
     fromElem rest = (Nothing, rest)
-    toElem (RSSChannel t u l d dcs im is) = [CElem $ Elem "channel" [("rdf:about", str2attr u)] ([tt, lt, dt, ist]++imt++dct)]
+    toElem (RSSChannel t u l d dcs im is) = [CElem $ escape $ Elem "channel" [("rdf:about", str2attr u)] ([tt, lt, dt, ist]++imt++dct)]
         where tt = toText' "title" t
               lt = toText' "link" l
               dt = toText' "description" d
@@ -206,14 +207,14 @@ instance XmlContent RSSChannel where
               ist = CElem $ Elem "items" [] 
                     [CElem $ Elem "rdf:Seq" [] (map (l2li . get link) is)]
               dct = concatMap toElem dcs
-              l2li l = CElem $ Elem "rdf:li" [("rdf:resource", str2attr l)] []
+              l2li l = CElem $ escape $ Elem "rdf:li" [("rdf:resource", str2attr l)] []
 
 
 rss2Elem :: RSSChannel -> Element
 rss2Elem = rss2ElemWithAttrs defaultAttrs
 rss2ElemWithAttrs :: [(String, String)] -> RSSChannel -> Element
 rss2ElemWithAttrs attrs ch = 
-    Elem "rdf:RDF" attrs' (toElem img++concatMap toElem es++toElem img)
+    escape $ Elem "rdf:RDF" attrs' (toElem ch++toElem img++concatMap toElem es++toElem img)
     where img = get image ch
           es  = get items ch
           attrs' = map (\(f, v) -> (f, str2attr v)) attrs
@@ -229,3 +230,9 @@ defaultAttrs = [ ("xmlns", "http://purl.org/rss/1.0/")
                , ("xmlns:dc", "http://purl.org/dc/elements/1.1/")
                , ("xmlns:content", "http://purl.org/rss/1.0/modules/content/")
                ] 
+
+escape = xmlEscape rssXmlEscaper
+
+rssXmlEscaper = mkXmlEscaper [('<', "lt"),('>',"gt"),('&',"amp"),('\'',"apos"),('"',"quot")] f
+    where f ch = i < 32 || i > 255 || (ch `elem` "\"&<>")
+                 where i = ord ch
