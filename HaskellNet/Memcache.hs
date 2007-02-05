@@ -192,18 +192,18 @@ getS :: BSStream s => Memcache s -> String -> IO ByteString
 getS m k = fmap head (getsS m [k])
 getsS :: BSStream s => Memcache s -> [String] -> IO [ByteString]
 getsS m ks = fmap (map f) $ getsFull m ks
-    where f (Just (_,_,bs)) = bs
-          f _               = BS.empty
+    where f (Just (_,bs)) = bs
+          f _             = BS.empty
 
 get :: (BSStream s, Escapable v) => Memcache s -> String -> IO (Maybe v)
 get m k = fmap head $ gets m [k]
 gets :: (BSStream s, Escapable v) => Memcache s -> [String] -> IO [Maybe v]
 gets m ks = fmap (map (>>= f)) $ getsFull m ks
-    where f (_,_,bs) = Just $ unEscape bs
+    where f (_,bs) = Just $ unEscape bs
 
-getFull :: BSStream s => Memcache s -> String -> IO (Maybe (Flags, Expire, ByteString))
+getFull :: BSStream s => Memcache s -> String -> IO (Maybe (Flags, ByteString))
 getFull m k = fmap head (getsFull m [k])
-getsFull :: BSStream s => Memcache s -> [String] -> IO [Maybe (Flags, Expire, ByteString)]
+getsFull :: BSStream s => Memcache s -> [String] -> IO [Maybe (Flags, ByteString)]
 getsFull (Memcache s) keys = 
     do bsPut s (pack "get ")
        bsPutCrLf s $ BS.unwords $ map pack keys
@@ -214,9 +214,10 @@ getsFull (Memcache s) keys =
                  case () of
                    _ | l == pack "END\r" -> return m
                      | BS.pack "VALUE " `BS.isPrefixOf` l ->
-                         do l2 <- bsGetLine s
-                            let (k:fl:expr:_) = tail $ BS.words l
-                            parse (M.insert k (read $ unpack fl, read $ unpack expr, BS.init l2) m) s
+                         do let (k:fl:bytes:_) = tail $ BS.words l
+                            cont <- bsGet s (read $ unpack bytes)
+                            delim <- bsGet s 2 -- read "\r\n" delimiter
+                            parse (M.insert k (read $ unpack fl, cont) m) s
                      | otherwise -> fail "invalid server response"
 
 delete :: BSStream s => Memcache s -> String -> IO ()
