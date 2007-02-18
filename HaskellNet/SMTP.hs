@@ -150,15 +150,15 @@ connectStream st =
 
 parseResponse :: BSStream s => s -> IO (ReplyCode, ByteString)
 parseResponse st = 
-    do lst <- readLines
-       let code = read $ BS.unpack $ BS.takeWhile isSpace $ last lst
-       return (code, BS.unlines $ map (BS.tail . BS.dropWhile isDigit) lst)
+    do (code, bdy) <- readLines
+       return (read $ BS.unpack code, BS.unlines bdy)
     where readLines =
               do l <- bsGetLine st
-                 if BS.head (BS.dropWhile isDigit l) == '-'
-                    then do ls <- readLines
-                            return (l:ls)
-                    else return [l]
+                 let (c, bdy) = BS.span isDigit l
+                 if not (BS.null bdy) && BS.head bdy == '-'
+                    then do (c, ls) <- readLines
+                            return (c, (BS.tail bdy:ls))
+                    else return (c, [BS.tail bdy])
 
 
 -- | send a method to a server
