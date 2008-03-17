@@ -187,11 +187,10 @@ ma >>+ mb = ma >>= \a -> mb >>= \b -> return (a++b)
 
 pNumber :: JsonDerivs -> Result JsonDerivs Double
 Parser pNumber = liftM read $ int >>+ option "" frac >>+ option "" exp
-    where digits = many digit
+    where digits = many1 digit
           int    = do s  <- option "" (string "-")
-                      x  <- oneOf ['1'..'9']
                       xs <- digits
-                      return (s++x:xs)
+                      return (s++xs)
           frac   = char '.' >> liftM ('.':) (many1 digit)
           exp    = e >>+ digits
           e      = do a <- char 'e' <|> char 'E'
