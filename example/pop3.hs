@@ -21,17 +21,3 @@ main = do
   print msg
   closePop3 con
 
---"+OK Dovecot ready.\r"
-
-strp :: ByteString -> ByteString
-strp s = head $ dropWhile (isSpace . BS.last) $ BS.inits $ BS.dropWhile isSpace s
-{-
-trim :: ByteString -> ByteString  
-trim = trimR . trimR  
-     where  
-         trimR s = let rs = BS.reverse s in
-                   BS.dropWhile blank rs
-
-blank :: Char -> Bool
-blank a = isSpace a || isControl a
--}

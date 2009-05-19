@@ -4,7 +4,7 @@ Author:         Jun Mukai
 License:        BSD3
 Category:       Network
 Build-Depends:  base, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto, base64-string, containers, HaXml, old-locale, old-time
-Synopsis:       network related libraries such as HTTP, POP3, SMTP
+Synopsis:       network related libraries such as POP3, SMTP, IMAP
 cabal-version:  >=1.2
 build-type:	Simple
 
@@ -19,8 +19,6 @@ exposed-modules:
    HaskellNet.IMAP,
    HaskellNet.SMTP,
    HaskellNet.POP3,
-   HaskellNet.HTTP,
-   HaskellNet.Browser,
    HaskellNet.BSStream,
    HaskellNet.Auth
 other-modules: Data.Record, Text.Packrat.Pos, Text.Packrat.Parse
