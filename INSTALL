@@ -1,0 +1,7 @@
+
+cabal configure
+cabal build
+cabal install
+
+You can run imap, smtp, and pop3 examples using ghci.
+NB: you might need to add "-hide-package transformers" to the ghci command
