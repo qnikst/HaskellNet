@@ -172,7 +172,7 @@ connectIMAPPort hostname port = connectTo hostname (PortNumber port) >>= connect
 connectIMAP :: String -> IO (IMAPConnection Handle)
 connectIMAP hostname = connectIMAPPort hostname 143
 
-connectStream :: BSStream s => s -> IO (IMAPConnection s)
+connecStream :: BSStream s => s -> IO (IMAPConnection s)
 connectStream s =
     do msg <- bsGetLine s
        unless (and $ BS.zipWith (==) msg (BS.pack "* OK")) $ fail "cannot connect to the server"

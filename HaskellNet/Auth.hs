@@ -16,7 +16,7 @@ where
 
 import Data.Digest.MD5
 import Codec.Utils
-import qualified Codec.Binary.Base64 as B64 (encode, decode)
+import qualified Codec.Binary.Base64.String as B64 (encode, decode)
 
 import Data.List
 import Data.Bits

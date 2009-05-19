@@ -1,4 +1,3 @@
-{-# OPTIONS -package HaskellNet #-}
 module Main(main) where
 
 import Data.Maybe

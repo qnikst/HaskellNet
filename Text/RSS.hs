@@ -27,6 +27,7 @@ import Data.Record
 import Data.List (isPrefixOf)
 import Data.Maybe
 import Data.Time.Calendar (fromGregorian)
+import Data.Time (formatTime)
 import Data.Time.LocalTime
 import System.Locale (defaultTimeLocale)
 import Text.XML.HaXml

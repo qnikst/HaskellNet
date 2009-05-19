@@ -19,7 +19,7 @@ import Text.Packrat.Pos
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 
-import qualified Codec.Binary.Base64 as B64 (encode, decode)
+import qualified Codec.Binary.Base64.String as B64 (encode, decode)
 import Data.Digest.MD5 (hash)
 
 import Data.Maybe

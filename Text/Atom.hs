@@ -38,7 +38,8 @@ import Data.Foldable
 import Data.Map (findWithDefault, insert, Map)
 import qualified Data.Map as M
 import Data.Monoid (Sum(..))
-import Data.Time.LocalTime (LocalTime(..), TimeOfDay(..), ZonedTime(..), TimeZone(..), formatTime, minutesToTimeZone, utc)
+import Data.Time (formatTime)
+import Data.Time.LocalTime (LocalTime(..), TimeOfDay(..), ZonedTime(..), TimeZone(..), minutesToTimeZone, utc)
 import System.Locale (defaultTimeLocale)
 import Data.Time.Calendar
 import Text.XML.HaXml hiding (version)
@@ -46,7 +47,7 @@ import Text.XML.HaXml.Escape (xmlEscape, xmlUnEscape, mkXmlEscaper)
 import qualified Text.XML.HaXml.Html.Pretty as P (content)
 import Text.XML.HaXml.Xml2Haskell
 import Text.PrettyPrint.HughesPJ (hcat)
-import qualified Codec.Binary.Base64 as B64 (encode, decode)
+import qualified Codec.Binary.Base64.String as B64 (encode, decode)
 
 import Prelude hiding (foldr1, foldr, or, any, all, concatMap, concat, elem)
 

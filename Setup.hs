@@ -1,2 +1,3 @@
 import Distribution.Simple
-main = defaultMainWithHooks defaultUserHooks
+main = defaultMain
+--main = defaultMainWithHooks defaultUserHooks
