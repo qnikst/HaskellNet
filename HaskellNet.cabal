@@ -1,6 +1,7 @@
 Name:           HaskellNet
 Version:        0.2.1
 Author:         Jun Mukai
+Maintainer:	Robert Wills
 License:        BSD3
 Category:       Network
 Build-Depends:  base, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto, base64-string, containers, HaXml, old-locale, old-time
