@@ -11,7 +11,6 @@ user = ""
 pass = ""
 
 main = do
-  let rs = strp $ BS.pack "+OK Dovecot ready.\r"
   con <- connectPop3 popServer
   print "connected"
   userPass con user pass
