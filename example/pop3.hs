@@ -6,7 +6,7 @@ import qualified Data.ByteString.Char8 as BS
 import Data.Char 
 import Data.ByteString (ByteString)
 
-popServer = "pop3.ukfsn.org"
+popServer = "pop3.mail.org"
 user = ""
 pass = ""
 

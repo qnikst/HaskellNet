@@ -4,7 +4,7 @@ import Text.Mime
 import qualified Data.ByteString.Char8 as BS
 import Control.Monad
 
-imapServer = "mail.ukfsn.org"
+imapServer = "imap.mail.org"
 user = ""
 pass = ""
 
