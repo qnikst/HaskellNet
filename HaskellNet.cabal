@@ -1,10 +1,13 @@
 Name:           HaskellNet
 Version:        0.2.1
 Author:         Jun Mukai
-Maintainer:	Robert Wills
+Maintainer:	Robert Wills <wrwills@gmail.com>
 License:        BSD3
 Category:       Network
-Build-Depends:  base, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto, base64-string, containers, HaXml, old-locale, old-time
+Description:	Originally written for Google SOC, provides network related libraries such as POP3, SMTP, IMAP.  
+		All I have done is get the project to compile using cabal and check that these libraries basically 
+		work.  
+Build-Depends:  base, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto, base64-string, containers, HaXml<1.19, old-locale, old-time
 Synopsis:       network related libraries such as POP3, SMTP, IMAP
 cabal-version:  >=1.2
 build-type:	Simple

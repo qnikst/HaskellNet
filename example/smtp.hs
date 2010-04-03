@@ -3,7 +3,8 @@ import HaskellNet.SMTP
 import Text.Mime
 import qualified Data.ByteString.Char8 as BS
 
-smtpServer = "outmail.f2s.com"
+--smtpServer = "outmail.f2s.com"
+smtpServer = "venturenavigator.co.uk"
 sendFrom = "test@test.org"
 sendTo = ["wrwills@gmail.com"]
 
