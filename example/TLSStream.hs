@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -cpp -fglasgow-exts -package hsgnutls -package HaskellNet #-}
+-- {-# OPTIONS_GHC -cpp -fglasgow-exts -package hsgnutls -package HaskellNet #-}
 -- examples to connect server by hsgnutls
 
 module TLSStream
@@ -15,7 +15,7 @@ import HaskellNet.BSStream
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Base as BSB
+import qualified Data.ByteString.Internal as BSB
 
 import System.IO
 
@@ -54,7 +54,7 @@ waiting = 500 -- miliseconds
 extendBuf sess@(TlsSession s _ buf) =
     do res <- mallocForeignPtrBytes bufLen
        len <- withForeignPtr res (\p -> tlsRecv s p bufLen)
-       modifyIORef buf (flip BS.append $ BSB.fromForeignPtr res len)
+       modifyIORef buf (flip BS.append $ BSB.fromForeignPtr res 0 len)
        return len
 
 doWhile cond execute =

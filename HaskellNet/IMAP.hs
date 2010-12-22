@@ -366,7 +366,11 @@ search conn queries = searchCharset conn "" queries
 
 searchCharset :: BSStream s => IMAPConnection s -> Charset -> [SearchQuery] -> IO [UID]
 searchCharset conn charset queries =
-    sendCommand conn ("UID SEARCH " ++ charset ++ " " ++ unwords (map show queries)) pSearch
+    sendCommand conn ("UID SEARCH " 
+                    ++ (if not . null $ charset 
+                           then charset ++ " " 
+                           else "") 
+                    ++ unwords (map show queries)) pSearch
 
 fetch, fetchHeader :: BSStream s => IMAPConnection s -> UID -> IO ByteString
 fetch conn uid =
