@@ -47,6 +47,11 @@ import HaskellNet.Auth
 
 import System.IO
 
+import Network.Mail.Mime
+import qualified Data.ByteString.Lazy as B
+import qualified Data.ByteString as S
+import qualified Data.Text.Lazy as LT
+
 import Prelude hiding (catch)
 
 data (BSStream s) => SMTPConnection s = SMTPC !s ![ByteString]
@@ -227,7 +232,7 @@ sendMail sender receivers dat conn =
                          (250, _) <- sendCommand conn (DATA dat)
                          return ()
           catcher e@(PatternMatchFail _) = fail "sendMail error"
-          catcher e = throwIO e
+--          catcher e = throwIO e
 
 -- | 
 -- doSMTPPort open a connection, and do an IO action with the
@@ -247,3 +252,15 @@ doSMTP host execution = doSMTPPort host 25 execution
 -- a Stream data instead of hostname and port number.
 doSMTPStream :: BSStream s => s -> (SMTPConnection s -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
+
+sendMimeMail :: BSStream s => String -> String -> String -> LT.Text -> LT.Text -> [(String, FilePath)] -> SMTPConnection s -> IO ()
+sendMimeMail to from subject plainBody htmlBody attachments con = do
+  myMail <-  simpleMail to from subject plainBody htmlBody attachments
+  renderedMail <- renderMail' myMail       
+  sendMail from [to] (lazyToStrict renderedMail) con
+  closeSMTP con
+
+-- haskellNet uses strict bytestrings
+-- TODO: look at making haskellnet lazy
+lazyToStrict = S.concat . B.toChunks
+
