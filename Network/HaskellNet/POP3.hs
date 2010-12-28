@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------
 -- |
--- Module      :  HaskellNet.POP3
+-- Module      :  Network.HaskellNet.POP3
 -- Copyright   :  (c) Jun Mukai 2006
 -- License     :  BSD-style (see the file LICENSE)
 -- 
@@ -11,7 +11,7 @@
 -- POP3 client implementation
 -- 
 
-module HaskellNet.POP3
+module Network.HaskellNet.POP3
     ( -- * Types
       Command(..)
     , POP3Connection(..)
@@ -45,10 +45,10 @@ module HaskellNet.POP3
     )
     where
 
-import HaskellNet.BSStream
+import Network.HaskellNet.BSStream
 import Network
-import HaskellNet.Auth hiding (auth, login)
-import qualified HaskellNet.Auth as A
+import Network.HaskellNet.Auth hiding (auth, login)
+import qualified Network.HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS

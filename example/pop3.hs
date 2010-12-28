@@ -1,5 +1,5 @@
 import System.IO
-import HaskellNet.POP3
+import Network.HaskellNet.POP3
 
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Char8 as BS

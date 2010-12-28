@@ -3,25 +3,32 @@ Version:        0.2.4
 Author:         Jun Mukai
 Maintainer:	Robert Wills <wrwills@gmail.com>
 License:        BSD3
+License-file:	LICENSE
 Category:       Network
-Homepage:       https://patch-tag.com/r/wrwills/HaskellNet/home
+Homepage:       https://patch-tag.com/r/wrwills/HaskellNet
 Description:	Originally written for Google SOC, provides network related libraries such as POP3, SMTP, IMAP.  
-		All I have done is get the project to compile using cabal and check that these libraries basically 
-		work.  
-Build-Depends:  base >= 4, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto > 4.2.1, base64-string, containers, old-locale, old-time, mime-mail, text
+		All I have done is get the project to compile using cabal, check that these libraries basically 
+		work, and add some examples
 Synopsis:       network related libraries such as POP3, SMTP, IMAP
-cabal-version:  >=1.2
-build-type:	Simple
+Cabal-version:  >=1.6
+Build-type:	Simple
 
+Extra-Source-Files: README.md, example/*.hs
 
-exposed-modules:
+Library
+  Exposed-modules:
    Text.IMAPParsers,
    Text.Mime,
    Text.URI,
 --   Text.Bencode,
-   HaskellNet.IMAP,
-   HaskellNet.SMTP,
-   HaskellNet.POP3,
-   HaskellNet.BSStream,
-   HaskellNet.Auth
-other-modules: Data.Record, Text.Packrat.Pos, Text.Packrat.Parse
+   Network.HaskellNet.IMAP,
+   Network.HaskellNet.SMTP,
+   Network.HaskellNet.POP3,
+   Network.HaskellNet.BSStream,
+   Network.HaskellNet.Auth
+  Other-modules: Data.Record, Text.Packrat.Pos, Text.Packrat.Parse
+  Build-Depends:  base >= 4 && < 5, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto > 4.2.1, base64-string, containers, old-locale, old-time, mime-mail, text
+
+source-repository head
+  type:     darcs
+  location: https://patch-tag.com/r/wrwills/HaskellNet

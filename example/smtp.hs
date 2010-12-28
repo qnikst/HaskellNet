@@ -1,5 +1,5 @@
 import System.IO
-import HaskellNet.SMTP
+import Network.HaskellNet.SMTP
 import Text.Mime
 import qualified Data.ByteString.Char8 as BS
 import Codec.Binary.Base64.String
@@ -16,15 +16,15 @@ main = do
   messageHtml <- BS.readFile "example/message.html"
   let textP = SinglePart [("Content-Type", "text/plain; charset=utf-8")] message
   let htmlP = SinglePart [("Content-Type", "text/html; charset=utf-8")] messageHtml
-  let msg = MultiPart [("From", "HaskellNet <" ++ sendFrom ++ ">"),("Subject","Test")] [htmlP, textP]
+  let msg = MultiPart [("From", "Network.HaskellNet <" ++ sendFrom ++ ">"),("Subject","Test")] [htmlP, textP]
   sendMail sendFrom sendTo (BS.pack $ show $ showMime "utf-8" msg) con
   closeSMTP con
          
 
 
-  --let msg = ([("From", "HaskellNet <" ++ sendFrom ++ ">"),("Subject","Test")], MultiPart [] [textP, htmlP])
+  --let msg = ([("From", "Network.HaskellNet <" ++ sendFrom ++ ">"),("Subject","Test")], MultiPart [] [textP, htmlP])
   --sendMail sendFrom sendTo (BS.pack $ show $ showMessage "utf-8" msg) con
---  let msg = ([("From", "HaskellNet <" ++ sendFrom ++ ">"),("Subject","Test")], BS.pack "\r\nhello 算法是指完成一个任from haskellnet")
+--  let msg = ([("From", "Network.HaskellNet <" ++ sendFrom ++ ">"),("Subject","Test")], BS.pack "\r\nhello 算法是指完成一个任from haskellnet")
 
 --htmlP = SinglePart [("Content-Type", "text/html; charset=utf-8", "Content-Transfer-Encoding", ""] BS.pack $ encode $  
 

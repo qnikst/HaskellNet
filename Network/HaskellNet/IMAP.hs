@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------
 -- |
--- Module      :  HaskellNet.IMAP
+-- Module      :  Network.HaskellNet.IMAP
 -- Copyright   :  (c) Jun Mukai 2006
 -- License     :  BSD-style (see the file LICENSE)
 -- 
@@ -11,7 +11,7 @@
 -- IMAP client implementation
 -- 
 
-module HaskellNet.IMAP
+module Network.HaskellNet.IMAP
     ( -- * connection type and corresponding actions
       IMAPConnection
     , mailbox, exists, recent
@@ -41,9 +41,9 @@ module HaskellNet.IMAP
 where
 
 import Network
-import HaskellNet.BSStream
-import HaskellNet.Auth hiding (auth, login)
-import qualified HaskellNet.Auth as A
+import Network.HaskellNet.BSStream
+import Network.HaskellNet.Auth hiding (auth, login)
+import qualified Network.HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS

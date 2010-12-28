@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  HaskellNet.Stream
+-- Module      :  Network.HaskellNet.Stream
 -- Copyright   :  (c) Jun Mukai 2006
 -- License     :  BSD
 --
@@ -13,7 +13,7 @@
 --      
 -----------------------------------------------------------------------------
 
-module HaskellNet.BSStream
+module Network.HaskellNet.BSStream
     ( BSStream(..)
     )
 where

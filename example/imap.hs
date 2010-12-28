@@ -1,5 +1,5 @@
 import System.IO
-import HaskellNet.IMAP
+import Network.HaskellNet.IMAP
 import Text.Mime
 import qualified Data.ByteString.Char8 as BS
 import Control.Monad

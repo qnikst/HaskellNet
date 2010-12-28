@@ -1,4 +1,4 @@
--- {-# OPTIONS_GHC -cpp -fglasgow-exts -package hsgnutls -package HaskellNet #-}
+-- {-# OPTIONS_GHC -cpp -fglasgow-exts -package hsgnutls -package Network.HaskellNet #-}
 -- examples to connect server by hsgnutls
 
 module TLSStream
@@ -11,7 +11,7 @@ module TLSStream
 
 import Network.GnuTLS
 import Network
-import HaskellNet.BSStream
+import Network.HaskellNet.BSStream
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS

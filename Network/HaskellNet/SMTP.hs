@@ -1,7 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 ----------------------------------------------------------------------
 -- |
--- Module      :  HaskellNet.SMTP
+-- Module      :  Network.HaskellNet.SMTP
 -- Copyright   :  (c) Jun Mukai 2006
 -- License     :  BSD-style (see the file LICENSE)
 -- 
@@ -12,7 +12,7 @@
 -- SMTP client implementation
 -- 
 
-module HaskellNet.SMTP
+module Network.HaskellNet.SMTP
     ( -- * Types
       Command(..)
     , Response(..)
@@ -33,7 +33,7 @@ module HaskellNet.SMTP
     )
     where
 
-import HaskellNet.BSStream
+import Network.HaskellNet.BSStream
 import Data.ByteString (ByteString, append)
 import qualified Data.ByteString.Char8 as BS
 import Network.BSD (getHostName)
@@ -45,7 +45,7 @@ import Control.Monad (unless)
 import Data.List (intersperse)
 import Data.Char (chr, ord, isSpace, isDigit)
 
-import HaskellNet.Auth
+import Network.HaskellNet.Auth
 
 import System.IO
 

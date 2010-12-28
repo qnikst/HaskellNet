@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------
 -- |
--- Module      :  HaskellNet.Auth
+-- Module      :  Network.HaskellNet.Auth
 -- Copyright   :  (c) Jun Mukai 2006
 -- License     :  BSD-style (see the file LICENSE)
 -- 
@@ -11,7 +11,7 @@
 -- Authentication related APIs
 -- 
 
-module HaskellNet.Auth
+module Network.HaskellNet.Auth
 where
 
 import Data.Digest.MD5
