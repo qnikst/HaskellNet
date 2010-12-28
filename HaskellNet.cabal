@@ -8,7 +8,8 @@ Homepage:       https://patch-tag.com/r/wrwills/HaskellNet/home
 Description:	Originally written for Google SOC, provides network related libraries such as POP3, SMTP, IMAP.  
 		All I have done is get the project to compile using cabal and check that these libraries basically 
 		work.  
-Build-Depends:  base >= 2 && < 4, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto <= 4.2.1, base64-string, containers, old-locale, old-time
+Build-Depends:  base >= 4, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto > 4.2.1, base64-string, containers, old-locale, old-time
+--Build-Depends:  base >= 2 && < 4, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto <= 4.2.1, base64-string, containers, old-locale, old-time
 Synopsis:       network related libraries such as POP3, SMTP, IMAP
 cabal-version:  >=1.2
 build-type:	Simple
@@ -18,7 +19,7 @@ exposed-modules:
    Text.IMAPParsers,
    Text.Mime,
    Text.URI,
-   Text.Bencode,
+--   Text.Bencode,
    HaskellNet.IMAP,
    HaskellNet.SMTP,
    HaskellNet.POP3,
