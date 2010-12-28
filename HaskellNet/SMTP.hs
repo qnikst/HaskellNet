@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 ----------------------------------------------------------------------
 -- |
 -- Module      :  HaskellNet.SMTP
@@ -28,6 +29,7 @@ module HaskellNet.SMTP
     , doSMTPPort
     , doSMTP
     , doSMTPStream
+    , sendMimeMail
     )
     where
 
@@ -212,8 +214,16 @@ sendCommand (SMTPC conn _) meth =
 -- close the connection.  This function send the QUIT method, so you
 -- do not have to QUIT method explicitly.
 closeSMTP :: BSStream s => SMTPConnection s -> IO ()
+closeSMTP c@(SMTPC conn _) = do bsClose conn
+
+{-
+I must be being stupid here
+I can't seem to be able to catch the exception arising from the connection already being closed
+this would be the correct way to do it but instead we're being naughty above by just closes the
+connection without first sending QUIT
 closeSMTP c@(SMTPC conn _) = do sendCommand c QUIT
-                                bsClose conn
+                                bsClose conn `catch` \(_ :: IOException) -> return ()
+-}
 
 -- | 
 -- sending a mail to a server. This is achieved by sendMessage.  If
@@ -231,7 +241,8 @@ sendMail sender receivers dat conn =
                          unless (all ((==250) . fst) vals) $ fail "sendMail error"
                          (250, _) <- sendCommand conn (DATA dat)
                          return ()
-          catcher e@(PatternMatchFail _) = fail "sendMail error"
+          catcher e@(PatternMatchFail _) = throwIO e
+--          catcher e@(PatternMatchFail _) = fail "sendMail error"
 --          catcher e = throwIO e
 
 -- | 

@@ -37,6 +37,7 @@ class BSStream h where
     bsPutNoFlush :: h -> ByteString -> IO ()
     bsFlush :: h -> IO ()
     bsClose :: h -> IO ()
+    bsIsOpen :: h -> IO Bool
 
     bsPuts h strs = mapM_ (bsPut h) strs
     bsPutCrLf h s = bsPut h s >> bsPut h crlf
@@ -55,4 +56,7 @@ instance BSStream Handle where
     bsPutStrLn  h s = BS.hPutStrLn h s >> bsFlush h
     bsPutNoFlush = BS.hPut
     bsFlush = hFlush
-    bsClose = hClose
+    bsClose h = do
+      op <- hIsOpen h
+      if op then (hClose h) else return ()
+    bsIsOpen = hIsOpen
