@@ -52,7 +52,11 @@ import System.IO
 import Network.Mail.Mime
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString as S
+
+import Data.Text (Text)
 import qualified Data.Text.Lazy as LT
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 
 import Prelude hiding (catch)
 
@@ -174,7 +178,7 @@ sendCommand (SMTPC conn _) (DATA dat) =
     do bsPutCrLf conn $ BS.pack "DATA"
        (code, msg) <- parseResponse conn
        unless (code == 354) $ fail "this server cannot accept any data."
-       mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]
+       mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]             
        parseResponse conn
     where sendLine l = bsPutCrLf conn l
 sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
@@ -264,9 +268,15 @@ doSMTP host execution = doSMTPPort host 25 execution
 doSMTPStream :: BSStream s => s -> (SMTPConnection s -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
 
-sendMimeMail :: BSStream s => String -> String -> String -> LT.Text -> LT.Text -> [(String, FilePath)] -> SMTPConnection s -> IO ()
+--sendMimeMail :: BSStream s => String -> String -> String -> LT.Text -> LT.Text -> [(String, FilePath)] -> SMTPConnection s -> IO ()
+--sendMimeMail to from subject plainBody htmlBody attachments con = 
+--    sendMimeMail (LT.pack to) (LT.pack from) (LT.pack subject) plainBody htmlBody (map (\x -> ((LT.pack . fst) x, (snd x))) attachments) con
+
+
+sendMimeMail :: BSStream s => String -> String -> String -> LT.Text -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection s -> IO ()
+--sendMimeMail :: BSStream s => T.Text -> T.Text -> T.Text -> LT.Text -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection s -> IO ()
 sendMimeMail to from subject plainBody htmlBody attachments con = do
-  myMail <-  simpleMail to from subject plainBody htmlBody attachments
+  myMail <-  simpleMail (T.pack to) (T.pack from) (T.pack subject) plainBody htmlBody attachments
   renderedMail <- renderMail' myMail       
   sendMail from [to] (lazyToStrict renderedMail) con
   closeSMTP con

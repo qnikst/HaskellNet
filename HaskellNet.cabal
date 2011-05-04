@@ -27,7 +27,7 @@ Library
    Network.HaskellNet.BSStream,
    Network.HaskellNet.Auth
   Other-modules: Data.Record, Text.Packrat.Pos, Text.Packrat.Parse
-  Build-Depends:  base >= 4 && < 5, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto > 4.2.1, base64-string, containers, old-locale, old-time, mime-mail, text
+  Build-Depends:  base >= 4 && < 5, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto > 4.2.1, base64-string, containers, old-locale, old-time, mime-mail >= 0.3.0, text
 
 source-repository head
   type:     darcs
