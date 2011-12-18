@@ -1,34 +1,55 @@
 Name:           HaskellNet
+Synopsis:       network client support for POP3, SMTP, and IMAP
+Description:	This package provides client support for the POP3,
+                SMTP, and IMAP protocols.
 Version:        0.2.5
 Author:         Jun Mukai
-Maintainer:	Robert Wills <wrwills@gmail.com>
+Maintainer:	Jonathan Daugherty <drcygnus@gmail.com>
 License:        BSD3
 License-file:	LICENSE
 Category:       Network
-Homepage:       https://patch-tag.com/r/wrwills/HaskellNet
-Description:	Originally written for Google SOC, provides network related libraries such as POP3, SMTP, IMAP.  
-		All I have done is get the project to compile using cabal, check that these libraries basically 
-		work, and add some examples
-Synopsis:       network related libraries such as POP3, SMTP, IMAP
+Homepage:       https://github.com/jtdaugherty/HaskellNet
 Cabal-version:  >=1.6
 Build-type:	Simple
 
-Extra-Source-Files: README.md, example/*.hs
+Extra-Source-Files:
+  README.md
+  example/*.hs
+
+Source-Repository head
+  type:     git
+  location: git://github.com/jtdaugherty/HaskellNet.git
 
 Library
   Exposed-modules:
-   Text.IMAPParsers,
-   Text.Mime,
-   Text.URI,
---   Text.Bencode,
-   Network.HaskellNet.IMAP,
-   Network.HaskellNet.SMTP,
-   Network.HaskellNet.POP3,
-   Network.HaskellNet.BSStream,
-   Network.HaskellNet.Auth
-  Other-modules: Data.Record, Text.Packrat.Pos, Text.Packrat.Parse
-  Build-Depends:  base >= 4 && < 5, haskell98, network, mtl, parsec, time, bytestring, pretty, array, Crypto > 4.2.1, base64-string, containers, old-locale, old-time, mime-mail >= 0.3.0 && < 0.4, text
+    Text.IMAPParsers
+    Text.Mime
+    Text.URI
+    Network.HaskellNet.IMAP
+    Network.HaskellNet.SMTP
+    Network.HaskellNet.POP3
+    Network.HaskellNet.BSStream
+    Network.HaskellNet.Auth
 
-source-repository head
-  type:     darcs
-  location: https://patch-tag.com/r/wrwills/HaskellNet
+  Other-modules:
+    Data.Record
+    Text.Packrat.Pos
+    Text.Packrat.Parse
+
+  Build-Depends:
+    base >= 4 && < 5,
+    haskell98,
+    network,
+    mtl,
+    parsec,
+    time,
+    bytestring,
+    pretty,
+    array,
+    Crypto > 4.2.1,
+    base64-string,
+    containers,
+    old-locale,
+    old-time,
+    mime-mail >= 0.3.0 && < 0.4,
+    text
