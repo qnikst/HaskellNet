@@ -100,12 +100,10 @@ instance Derivs RespDerivs where
     dvChar = advChar
     dvPos  = advPos
 
-
 eval :: (RespDerivs -> Result RespDerivs r) -> String -> ByteString -> r
 eval pMain tag s = case pMain (parse tag (Pos tag 1 1) s) of
                      Parsed v _ _ -> v
                      NoParse e    -> error (show e)
-
 
 parse :: String -> Pos -> ByteString -> RespDerivs
 parse tagstr pos s = d
@@ -213,7 +211,6 @@ Parser pFetch =
        let (mboxUp, fetchRes) = mkMboxUpdate untagged
        return (resp, mboxUp, fetchRes)
 
-
 pDone :: RespDerivs -> Result RespDerivs ServerResponse
 Parser pDone = do tag <- Parser advTag
                   string tag >> space
@@ -259,8 +256,6 @@ Parser pDone = do tag <- Parser advTag
           parenWords = between (space >> char '(') (char ')')
                          (many1 (noneOf " )") `sepBy1` space)
 
-
-
 pFlag :: Parser RespDerivs Flag
 pFlag = do char '\\'
            choice [ string "Seen"     >> return Seen
@@ -282,7 +277,6 @@ Parser pParenFlags = do char '('
 atomChar :: Derivs d => Parser d Char
 atomChar = noneOf " (){%*\"\\]"
 
-
 pNumberedLine :: String -> Parser RespDerivs Integer
 pNumberedLine str = do num <- many1 digit
                        space
@@ -294,7 +288,6 @@ pExistsLine, pRecentLine, pExpungeLine :: Parser RespDerivs Integer
 pExistsLine  = pNumberedLine "EXISTS"
 pRecentLine  = pNumberedLine "RECENT"
 pExpungeLine = pNumberedLine "EXPUNGE"
-
 
 pOtherLine :: Parser RespDerivs (Either (String, Integer) b)
 pOtherLine = do string "* "
@@ -309,7 +302,6 @@ pCapabilityLine = do string "* CAPABILITY "
                      ws <- many1 (noneOf " \r") `sepBy` space
                      crlfP
                      return $ Right ws
-
 
 pListLine :: String
           -> Parser RespDerivs (Either a ([Attribute], String, Mailbox))
@@ -334,7 +326,6 @@ pListLine list =
           parseSep = space >> char '"' >> anyChar `manyTill` char '"'
           parseMailbox = space >> anyChar `manyTill` crlfP
 
-
 pStatusLine :: Parser RespDerivs (Either a [(MailboxStatus, Integer)])
 pStatusLine =
     do string "* STATUS "
@@ -352,13 +343,11 @@ pStatusLine =
                  num <- many1 digit >>= return . read
                  return (cons, num)
 
-
 pSearchLine :: Parser RespDerivs (Either a [UID])
 pSearchLine = do string "* SEARCH "
                  nums <- (many1 digit) `sepBy` space
                  crlfP
                  return $ Right $ map read nums
-
 
 pSelectLine :: Parser RespDerivs (MailboxInfo -> MailboxInfo)
 pSelectLine =
@@ -398,7 +387,6 @@ pSelectLine =
                  anyChar `manyTill` crlfP
                  return v
 
-
 pFetchLine :: Parser RespDerivs (Either a (Integer, [(String, String)]))
 pFetchLine =
     do string "* "
@@ -434,9 +422,6 @@ pFetchLine =
                        v <- many1 atomChar
                        return ('\\':v))
                <|> many1 atomChar
-
-
-
 
 ----------------------------------------------------------------------
 -- auxiliary parsers

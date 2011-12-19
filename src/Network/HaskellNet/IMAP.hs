@@ -52,7 +52,7 @@ import Text.Packrat.Parse (Result)
 
 ----------------------------------------------------------------------
 -- connection type and corresponding functions
-data BSStream s => IMAPConnection s = 
+data BSStream s => IMAPConnection s =
     IMAPC s (IORef MailboxInfo) (IORef Int)
 
 mailbox :: BSStream s => IMAPConnection s -> IO Mailbox
