@@ -143,13 +143,10 @@ instance Show SearchQuery where
               showFlag Draft       = "DRAFT"
               showFlag Recent      = "RECENT"
               showFlag (Keyword s) = "KEYWORD " ++ s
-            
 
 data FlagsQuery = ReplaceFlags [Flag]
                 | PlusFlags [Flag]
                 | MinusFlags [Flag]
-
-
 
 ----------------------------------------------------------------------
 -- establish connection
@@ -174,7 +171,7 @@ emptyMboxInfo = MboxInfo "" 0 0 [] [] False False 0 0
 -- normal send commands
 sendCommand' :: BSStream s => IMAPConnection s -> String -> IO ByteString
 sendCommand' (IMAPC s mbox nr) cmdstr =
-    do num <- readIORef nr 
+    do num <- readIORef nr
        bsPutCrLf s $ BS.pack $ show6 num ++ " " ++ cmdstr
        modifyIORef nr (+1)
        getResponse s
@@ -200,7 +197,7 @@ sendCommand imapc@(IMAPC _ mbox nr) cmdstr pFunc =
 
 getResponse :: BSStream s => s -> IO ByteString
 getResponse s = unlinesCRLF <$> getLs
-    where unlinesCRLF = BS.concat . concatMap (:[crlf]) 
+    where unlinesCRLF = BS.concat . concatMap (:[crlf])
           getLs = 
               do l <- strip <$> bsGetLine s
                  case () of
@@ -232,7 +229,7 @@ mboxUpdate mbox (MboxUpdate exists recent) =
 
 ----------------------------------------------------------------------
 -- IMAP commands
--- 
+--
 
 noop :: BSStream s => IMAPConnection s -> IO ()
 noop conn@(IMAPC s mbox _) = sendCommand conn "NOOP" pNone
@@ -319,7 +316,7 @@ append :: BSStream s => IMAPConnection s -> Mailbox -> ByteString -> IO ()
 append conn mbox mailData = appendFull conn mbox mailData [] Nothing
 
 appendFull :: BSStream s => IMAPConnection s -> Mailbox -> ByteString -> [Flag] -> Maybe CalendarTime -> IO ()
-appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags time = 
+appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags time =
     do num <- readIORef nr
        buf <- sendCommand' conn
                 (unwords ["APPEND", mbox
@@ -355,8 +352,8 @@ search conn queries = searchCharset conn "" queries
 searchCharset :: BSStream s => IMAPConnection s -> Charset -> [SearchQuery] -> IO [UID]
 searchCharset conn charset queries =
     sendCommand conn ("UID SEARCH " 
-                    ++ (if not . null $ charset 
-                           then charset ++ " " 
+                    ++ (if not . null $ charset
+                           then charset ++ " "
                            else "") 
                     ++ unwords (map show queries)) pSearch
 
@@ -376,7 +373,7 @@ fetchHeaderFields conn uid hs =
     do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS "++unwords hs++"]")
        return $ maybe BS.empty BS.pack $
               lookup ("BODY[HEADER.FIELDS "++unwords hs++"]") lst
-fetchHeaderFieldsNot conn uid hs = 
+fetchHeaderFieldsNot conn uid hs =
     do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS.NOT "++unwords hs++"]")
        return $ maybe BS.empty BS.pack $ lookup ("BODY[HEADER.FIELDS.NOT "++unwords hs++"]") lst
 fetchFlags :: BSStream s => IMAPConnection s -> UID -> IO [Flag]

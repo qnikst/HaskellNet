@@ -57,7 +57,7 @@ data Command = HELO String
              | EXPN String
              | VRFY String
              | HELP String
-             | AUTH AuthType UserName Password 
+             | AUTH AuthType UserName Password
              | NOOP
              | RSET
              | QUIT
@@ -165,7 +165,7 @@ sendCommand (SMTPC conn _) (DATA dat) =
     do bsPutCrLf conn $ BS.pack "DATA"
        (code, msg) <- parseResponse conn
        unless (code == 354) $ fail "this server cannot accept any data."
-       mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]             
+       mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]
        parseResponse conn
     where sendLine l = bsPutCrLf conn l
 sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
@@ -256,7 +256,7 @@ doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
 sendMimeMail :: BSStream s => String -> String -> String -> LT.Text -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection s -> IO ()
 sendMimeMail to from subject plainBody htmlBody attachments con = do
   myMail <-  simpleMail (T.pack to) (T.pack from) (T.pack subject) plainBody htmlBody attachments
-  renderedMail <- renderMail' myMail       
+  renderedMail <- renderMail' myMail
   sendMail from [to] (lazyToStrict renderedMail) con
   closeSMTP con
 
