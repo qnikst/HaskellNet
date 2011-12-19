@@ -206,11 +206,6 @@ login :: BSStream s => IMAPConnection s -> A.UserName -> A.Password -> IO ()
 login conn username password = sendCommand conn ("LOGIN " ++ username ++ " " ++ password)
                                pNone
 
-_select :: (BSStream s) => String -> IMAPConnection s -> String -> IO ()
-_select cmd conn mboxName =
-    do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
-       setMailboxInfo conn $ mbox' { _mailbox = mboxName }
-
 authenticate :: (BSStream s) => IMAPConnection s -> A.AuthType
              -> A.UserName -> A.Password -> IO ()
 authenticate conn A.LOGIN username password =
@@ -243,6 +238,11 @@ authenticate conn at username password =
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
+
+_select :: (BSStream s) => String -> IMAPConnection s -> String -> IO ()
+_select cmd conn mboxName =
+    do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
+       setMailboxInfo conn $ mbox' { _mailbox = mboxName }
 
 select :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
 select = _select "SELECT "
