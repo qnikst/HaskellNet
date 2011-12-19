@@ -1,12 +1,8 @@
-{-# OPTIONS_GHC -cpp -fglasgow-exts -package hsgnutls -package Network.HaskellNet #-}
--- examples to connect server by hsgnutls
-
-module DebugStream
+module Network.HaskellNet.Debug
     ( connectD
     , connectDPort
     , DebugStream
     , withDebug
-    , module BS
     )
     where
 
@@ -15,7 +11,6 @@ import Network.HaskellNet.BSStream
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.ByteString.Base as BSB
 
 import System.IO
 
@@ -90,3 +85,4 @@ instance (BSStream s) => BSStream (DebugStream s) where
            return ()
     bsFlush (DS h) = bsFlush h
     bsClose (DS h) = bsClose h
+    bsIsOpen (DS h) = bsIsOpen h
