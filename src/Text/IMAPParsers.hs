@@ -152,7 +152,6 @@ Parser pCapability =
        resp <- Parser pDone
        let (mboxUp, caps) = mkMboxUpdate untagged
        return (resp, mboxUp, concat caps)
-           
 
 pList :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [([Attribute], String, Mailbox)])
 Parser pList =
