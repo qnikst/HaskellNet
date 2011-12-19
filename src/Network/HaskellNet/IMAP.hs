@@ -57,20 +57,29 @@ data BSStream s => IMAPConnection s =
 
 mailbox :: BSStream s => IMAPConnection s -> IO Mailbox
 mailbox (IMAPC _ mbox _) = _mailbox <$> readIORef mbox
-exists, recent :: BSStream s => IMAPConnection s -> IO Integer
+
+exists :: BSStream s => IMAPConnection s -> IO Integer
 exists (IMAPC _ mbox _) = _exists <$> readIORef mbox
+
+recent :: BSStream s => IMAPConnection s -> IO Integer
 recent (IMAPC _ mbox _) = _recent <$> readIORef mbox
 
-flags, permanentFlags :: BSStream s => IMAPConnection s -> IO [Flag]
+flags :: BSStream s => IMAPConnection s -> IO [Flag]
 flags (IMAPC _ mbox _) = _flags <$> readIORef mbox
+
+permanentFlags :: BSStream s => IMAPConnection s -> IO [Flag]
 permanentFlags (IMAPC _ mbox _) = _permanentFlags <$> readIORef mbox
 
-isWritable, isFlagWritable :: BSStream s => IMAPConnection s -> IO Bool
+isWritable :: BSStream s => IMAPConnection s -> IO Bool
 isWritable (IMAPC _ mbox _) = _isWritable <$> readIORef mbox
+
+isFlagWritable :: BSStream s => IMAPConnection s -> IO Bool
 isFlagWritable (IMAPC _ mbox _) = _isFlagWritable <$> readIORef mbox
 
-uidNext, uidValidity :: BSStream s => IMAPConnection s -> IO UID
+uidNext :: BSStream s => IMAPConnection s -> IO UID
 uidNext (IMAPC _ mbox _) = _uidNext <$> readIORef mbox
+
+uidValidity :: BSStream s => IMAPConnection s -> IO UID
 uidValidity (IMAPC _ mbox _) = _uidValidity <$> readIORef mbox
 
 stream :: BSStream s => IMAPConnection s -> s
@@ -247,8 +256,6 @@ login :: BSStream s => IMAPConnection s -> UserName -> Password -> IO ()
 login conn username password = sendCommand conn ("LOGIN " ++ username ++ " " ++ password)
                                pNone
 
-select, examine, create, delete :: BSStream s =>
-                                   IMAPConnection s -> Mailbox -> IO ()
 _select :: (BSStream s) => String -> IMAPConnection s -> String -> IO ()
 _select cmd conn@(IMAPC _ mbox _) mboxName =
     do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
@@ -289,26 +296,40 @@ authenticate conn@(IMAPC s mbox nr) at username password =
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
 
+select :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
 select = _select "SELECT "
+
+examine :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
 examine = _select "EXAMINE "
+
+create :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
 create conn mboxname = sendCommand conn ("CREATE " ++ mboxname) pNone
+
+delete :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
 delete conn mboxname = sendCommand conn ("DELETE " ++ mboxname) pNone
 
 rename :: BSStream s => IMAPConnection s -> Mailbox -> Mailbox -> IO ()
 rename conn mboxorg mboxnew =
     sendCommand conn ("RENAME " ++ mboxorg ++ " " ++ mboxnew) pNone
 
-subscribe, unsubscribe :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
+subscribe :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
 subscribe conn mboxname = sendCommand conn ("SUBSCRIBE " ++ mboxname) pNone
+
+unsubscribe :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
 unsubscribe conn mboxname = sendCommand conn ("UNSUBSCRIBE " ++ mboxname) pNone
 
-list, lsub :: BSStream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
+list :: BSStream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
 list conn = (map (\(a, _, m) -> (a, m))) <$> listFull conn "\"\"" "*"
+
+lsub :: BSStream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
 lsub conn = (map (\(a, _, m) -> (a, m))) <$> lsubFull conn "\"\"" "*"
 
-listFull, lsubFull :: BSStream s => IMAPConnection s -> String -> String
-                   -> IO [([Attribute], String, Mailbox)]
+listFull :: BSStream s => IMAPConnection s -> String -> String
+         -> IO [([Attribute], String, Mailbox)]
 listFull conn ref pat = sendCommand conn (unwords ["LIST", ref, pat]) pList
+
+lsubFull :: BSStream s => IMAPConnection s -> String -> String
+         -> IO [([Attribute], String, Mailbox)]
 lsubFull conn ref pat = sendCommand conn (unwords ["LSUB", ref, pat]) pLsub
 
 status :: BSStream s => IMAPConnection s -> Mailbox -> [MailboxStatus]
@@ -365,10 +386,12 @@ searchCharset conn charset queries =
                            else "")
                     ++ unwords (map show queries)) pSearch
 
-fetch, fetchHeader :: BSStream s => IMAPConnection s -> UID -> IO ByteString
+fetch :: BSStream s => IMAPConnection s -> UID -> IO ByteString
 fetch conn uid =
     do lst <- fetchByString conn uid "BODY[]"
        return $ maybe BS.empty BS.pack $ lookup "BODY[]" lst
+
+fetchHeader :: BSStream s => IMAPConnection s -> UID -> IO ByteString
 fetchHeader conn uid =
     do lst <- fetchByString conn uid "BODY[HEADER]"
        return $ maybe BS.empty BS.pack $ lookup "BODY[HEADER]" lst
@@ -378,12 +401,15 @@ fetchSize conn uid =
     do lst <- fetchByString conn uid "RFC822.SIZE"
        return $ maybe 0 read $ lookup "RFC822.SIZE" lst
 
-fetchHeaderFields, fetchHeaderFieldsNot :: BSStream s => IMAPConnection s
-                                        -> UID -> [String] -> IO ByteString
+fetchHeaderFields :: BSStream s => IMAPConnection s
+                  -> UID -> [String] -> IO ByteString
 fetchHeaderFields conn uid hs =
     do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS "++unwords hs++"]")
        return $ maybe BS.empty BS.pack $
               lookup ("BODY[HEADER.FIELDS "++unwords hs++"]") lst
+
+fetchHeaderFieldsNot :: BSStream s => IMAPConnection s
+                     -> UID -> [String] -> IO ByteString
 fetchHeaderFieldsNot conn uid hs =
     do let fetchCmd = "BODY[HEADER.FIELDS.NOT "++unwords hs++"]"
        lst <- fetchByString conn uid fetchCmd
