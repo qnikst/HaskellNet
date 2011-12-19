@@ -53,25 +53,8 @@ import System.IO
 
 import Prelude hiding (catch)
 
-data BSStream s => POP3Connection s = POP3C !s !String -- ^ APOP key
-
-data Command = USER UserName
-             | PASS Password
-             | APOP UserName Password
-             | AUTH AuthType UserName Password
-             | NOOP
-             | QUIT
-             | STAT
-             | LIST (Maybe Int)
-             | DELE Int
-             | RETR Int
-             | RSET
-             | TOP Int Int
-             | UIDL (Maybe Int)
-
-data Response = Ok | Err
-                deriving (Eq, Show)
-
+import Network.HaskellNet.POP3.Types
+import Network.HaskellNet.POP3.Connection
 
 hexDigest :: [Char] -> [Char]
 hexDigest = concatMap (flip showHex "") . hash . map (toEnum.fromEnum)
@@ -103,9 +86,8 @@ connectStream st =
        when (resp == Err) $ fail "cannot connect"
        let code = last $ BS.words msg
        if BS.head code == '<' && BS.last code == '>'
-         then return $ POP3C st (BS.unpack code)
-         else return $ POP3C st ""
-
+         then return $ newConnection st (BS.unpack code)
+         else return $ newConnection st ""
 
 response :: BSStream s => s -> IO (Response, ByteString)
 response st =
@@ -131,16 +113,16 @@ responseML st =
 -- action is too generic. Use more specific actions
 sendCommand :: BSStream s => POP3Connection s -> Command
             -> IO (Response, ByteString)
-sendCommand (POP3C conn _) (LIST Nothing) =
+sendCommand conn (LIST Nothing) =
     bsPutCrLf conn (BS.pack "LIST") >> responseML conn
-sendCommand (POP3C conn _) (UIDL Nothing) =
+sendCommand conn (UIDL Nothing) =
     bsPutCrLf conn (BS.pack "UIDL") >> responseML conn
-sendCommand (POP3C conn _) (RETR msg) =
+sendCommand conn (RETR msg) =
     bsPutCrLf conn (BS.pack $ "RETR " ++ show msg) >> responseML conn
-sendCommand (POP3C conn _) (TOP msg n) =
+sendCommand conn (TOP msg n) =
     bsPutCrLf conn (BS.pack $ "TOP " ++ show msg ++ " " ++ show n) >>
     responseML conn
-sendCommand (POP3C conn _) (AUTH LOGIN username password) =
+sendCommand conn (AUTH LOGIN username password) =
     do bsPutCrLf conn $ BS.pack "AUTH LOGIN"
        bsGetLine conn
        bsPutCrLf conn $ BS.pack userB64
@@ -148,7 +130,7 @@ sendCommand (POP3C conn _) (AUTH LOGIN username password) =
        bsPutCrLf conn $ BS.pack passB64
        response conn
     where (userB64, passB64) = A.login username password
-sendCommand (POP3C conn _) (AUTH at username password) =
+sendCommand conn (AUTH at username password) =
     do bsPutCrLf conn $ BS.pack $ unwords ["AUTH", show at]
        c <- bsGetLine conn
        let challenge =
@@ -158,7 +140,7 @@ sendCommand (POP3C conn _) (AUTH at username password) =
                else ""
        bsPutCrLf conn $ BS.pack $ A.auth at challenge username password
        response conn
-sendCommand (POP3C conn msg_id) command =
+sendCommand conn command =
     bsPutCrLf conn (BS.pack commandStr) >> response conn
     where commandStr = case command of
                          (USER name)  -> "USER " ++ name
@@ -171,7 +153,7 @@ sendCommand (POP3C conn msg_id) command =
                          (LIST msg)   -> "LIST " ++ maybe "" show msg
                          (UIDL msg)   -> "UIDL " ++ maybe "" show msg
                          (APOP usern passw) -> "APOP " ++ usern ++ " " ++
-                                             hexDigest (msg_id ++ passw)
+                                             hexDigest (apopKey conn ++ passw)
                          (AUTH _ _ _) -> error "BUG: AUTH should not get matched here"
                          (RETR _) -> error "BUG: RETR should not get matched here"
                          (TOP _ _) -> error "BUG: TOP should not get matched here"
@@ -247,8 +229,8 @@ uidl conn n = do (resp, msg) <- sendCommand conn (UIDL (Just n))
                  return $ BS.tail $ BS.dropWhile (/=' ') msg
 
 closePop3 :: BSStream s => POP3Connection s -> IO ()
-closePop3 c@(POP3C conn _) = do sendCommand c QUIT
-                                bsClose conn
+closePop3 c = do sendCommand c QUIT
+                 bsClose c
 
 doPop3Port :: String -> PortNumber -> (POP3Connection Handle -> IO a) -> IO a
 doPop3Port host port execution =
