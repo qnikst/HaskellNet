@@ -42,6 +42,7 @@ import qualified Data.ByteString.Char8 as BS
 import Data.Digest.MD5
 import Numeric (showHex)
 
+import Control.Applicative ((<$>))
 import Control.Exception
 import Control.Monad (when, unless)
 
@@ -111,7 +112,7 @@ connectStream st =
 
 response :: BSStream s => s -> IO (Response, ByteString)
 response st =
-    do reply <- fmap strip $ bsGetLine st
+    do reply <- strip <$> bsGetLine st
        if (BS.pack "+OK") `BS.isPrefixOf` reply
          then return (Ok, BS.drop 4 reply)
          else return (Err, BS.drop 5 reply)
@@ -119,15 +120,15 @@ response st =
 -- | parse mutiline of response
 responseML :: BSStream s => s -> IO (Response, ByteString)
 responseML st =
-    do reply <- fmap strip $ bsGetLine st
+    do reply <- strip <$> bsGetLine st
        if (BS.pack "+OK") `BS.isPrefixOf` reply
          then do rest <- getRest
                  return (Ok, BS.unlines (BS.drop 4 reply : rest))
          else return (Err, BS.drop 5 reply)
-    where getRest = do l <- fmap strip $ bsGetLine st
+    where getRest = do l <- strip <$> bsGetLine st
                        if l == BS.singleton '.'
                          then return []
-                         else fmap (l:) getRest
+                         else (l:) <$> getRest
 
 {-
 response :: BSStream s => s -> IO (Response, ByteString)
