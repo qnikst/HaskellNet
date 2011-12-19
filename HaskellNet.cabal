@@ -21,6 +21,8 @@ Source-Repository head
   location: git://github.com/jtdaugherty/HaskellNet.git
 
 Library
+  Hs-Source-Dirs: src
+
   Exposed-modules:
     Text.IMAPParsers
     Text.Mime
