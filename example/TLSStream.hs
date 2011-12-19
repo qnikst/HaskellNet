@@ -46,10 +46,7 @@ connectTLSPort host port =
        handshake s
        fromSession h s
 
-
-
 bufLen = 4096
-waiting = 500 -- miliseconds
 
 extendBuf sess@(TlsSession s _ buf) =
     do res <- mallocForeignPtrBytes bufLen
@@ -60,7 +57,6 @@ extendBuf sess@(TlsSession s _ buf) =
 doWhile cond execute =
     do f <- cond
        when f $ (execute >> doWhile cond execute)
-          
 
 instance BSStream (TlsSession t) where
     bsGetLine sess@(TlsSession s _ buf) =
