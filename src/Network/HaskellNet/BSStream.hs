@@ -1,16 +1,4 @@
------------------------------------------------------------------------------
--- |
--- Module      :  Network.HaskellNet.Stream
--- Copyright   :  (c) Jun Mukai 2006
--- License     :  BSD
---
--- Maintainer  :  mukai@jmuk.org
--- Stability   :  experimental
--- Portability :  portable
---
--- A library for abstracting sockets suitable to Streams.
---
---      
+-- |A library for abstracting sockets suitable to Streams.
 -----------------------------------------------------------------------------
 
 module Network.HaskellNet.BSStream

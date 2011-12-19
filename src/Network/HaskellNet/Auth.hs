@@ -1,16 +1,3 @@
-----------------------------------------------------------------------
--- |
--- Module      :  Network.HaskellNet.Auth
--- Copyright   :  (c) Jun Mukai 2006
--- License     :  BSD-style (see the file LICENSE)
--- 
--- Maintainer  :  mukai@jmuk.org
--- Stability   :  stable
--- Portability :  portable
--- 
--- Authentication related APIs
--- 
-
 module Network.HaskellNet.Auth
 where
 

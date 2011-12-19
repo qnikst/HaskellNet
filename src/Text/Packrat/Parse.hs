@@ -1,19 +1,6 @@
-----------------------------------------------------------------------
--- |
--- Module      :  Text.Packrat.Parse
--- Copyright   :  (c) Bryan Ford
--- License     :  PublicDomain
--- 
--- Maintainer  :  mukai@jmuk.org
--- Stability   :  stable
--- Portability :  portable
--- 
--- Packrat parsing: Simple, Powerful, Lazy, Linear time by Bryan Ford.
--- This module achieves monadic parsing library similar to Parsec.
--- 
-
-
-
+-- | Packrat parsing: Simple, Powerful, Lazy, Linear time by Bryan
+-- Ford.  This module achieves monadic parsing library similar to
+-- Parsec.
 module Text.Packrat.Parse where
 
 import Char

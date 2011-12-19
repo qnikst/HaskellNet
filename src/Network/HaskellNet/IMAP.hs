@@ -1,16 +1,3 @@
-----------------------------------------------------------------------
--- |
--- Module      :  Network.HaskellNet.IMAP
--- Copyright   :  (c) Jun Mukai 2006
--- License     :  BSD-style (see the file LICENSE)
--- 
--- Maintainer  :  mukai@jmuk.org
--- Stability   :  stable
--- Portability :  portable
--- 
--- IMAP client implementation
--- 
-
 module Network.HaskellNet.IMAP
     ( -- * connection type and corresponding actions
       IMAPConnection

@@ -1,17 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables #-}
-----------------------------------------------------------------------
--- |
--- Module      :  Network.HaskellNet.SMTP
--- Copyright   :  (c) Jun Mukai 2006
--- License     :  BSD-style (see the file LICENSE)
--- 
--- Maintainer  :  mukai@jmuk.org
--- Stability   :  stable
--- Portability :  portable
--- 
--- SMTP client implementation
--- 
-
 module Network.HaskellNet.SMTP
     ( -- * Types
       Command(..)
