@@ -25,7 +25,6 @@ Library
 
   Exposed-modules:
     Text.IMAPParsers
-    Text.Mime
     Network.HaskellNet.IMAP
     Network.HaskellNet.SMTP
     Network.HaskellNet.POP3
