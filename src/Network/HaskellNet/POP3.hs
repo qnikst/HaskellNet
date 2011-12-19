@@ -1,10 +1,6 @@
 module Network.HaskellNet.POP3
-    ( -- * Types
-      Command(..)
-    , POP3Connection(..)
-    , Response(..)
-      -- * Establishing Connection
-    , connectPop3Port
+    ( -- * Establishing Connection
+      connectPop3Port
     , connectPop3
     , connectStream
       -- * Send Command
