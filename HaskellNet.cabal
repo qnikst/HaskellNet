@@ -32,7 +32,6 @@ Library
     Network.HaskellNet.Auth
 
   Other-modules:
-    Data.Record
     Text.Packrat.Pos
     Text.Packrat.Parse
 
