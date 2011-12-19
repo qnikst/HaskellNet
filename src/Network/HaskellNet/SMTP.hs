@@ -123,7 +123,8 @@ isRight _         = False
 connectSMTPPort :: String     -- ^ name of the server
                 -> PortNumber -- ^ port number
                 -> IO (SMTPConnection Handle)
-connectSMTPPort hostname port = connectTo hostname (PortNumber port) >>= connectStream
+connectSMTPPort hostname port =
+    connectTo hostname (PortNumber port) >>= connectStream
 
 -- | connecting SMTP server with the specified name and port 25.
 connectSMTP :: String     -- ^ name of the server
@@ -160,7 +161,8 @@ parseResponse st =
 
 
 -- | send a method to a server
-sendCommand :: BSStream s => SMTPConnection s -> Command -> IO (ReplyCode, ByteString)
+sendCommand :: BSStream s => SMTPConnection s -> Command
+            -> IO (ReplyCode, ByteString)
 sendCommand (SMTPC conn _) (DATA dat) =
     do bsPutCrLf conn $ BS.pack "DATA"
        (code, msg) <- parseResponse conn
@@ -208,11 +210,15 @@ closeSMTP c@(SMTPC conn _) = do bsClose conn
 
 {-
 I must be being stupid here
-I can't seem to be able to catch the exception arising from the connection already being closed
-this would be the correct way to do it but instead we're being naughty above by just closes the
-connection without first sending QUIT
-closeSMTP c@(SMTPC conn _) = do sendCommand c QUIT
-                                bsClose conn `catch` \(_ :: IOException) -> return ()
+
+I can't seem to be able to catch the exception arising from the
+connection already being closed this would be the correct way to do it
+but instead we're being naughty above by just closes the connection
+without first sending QUIT
+
+closeSMTP c@(SMTPC conn _) =
+    do sendCommand c QUIT
+       bsClose conn `catch` \(_ :: IOException) -> return ()
 -}
 
 -- | sending a mail to a server. This is achieved by sendMessage.  If
@@ -225,11 +231,12 @@ sendMail :: BSStream s =>
          -> IO ()
 sendMail sender receivers dat conn =
     catcher `handle` mainProc
-    where mainProc =  do (250, _) <- sendCommand conn (MAIL sender)
-                         vals <- mapM (sendCommand conn . RCPT) receivers
-                         unless (all ((==250) . fst) vals) $ fail "sendMail error"
-                         (250, _) <- sendCommand conn (DATA dat)
-                         return ()
+    where mainProc =
+              do (250, _) <- sendCommand conn (MAIL sender)
+                 vals <- mapM (sendCommand conn . RCPT) receivers
+                 unless (all ((==250) . fst) vals) $ fail "sendMail error"
+                 (250, _) <- sendCommand conn (DATA dat)
+                 return ()
           catcher e@(PatternMatchFail _) = throwIO e
 
 -- | doSMTPPort open a connection, and do an IO action with the
@@ -248,9 +255,11 @@ doSMTP host execution = doSMTPPort host 25 execution
 doSMTPStream :: BSStream s => s -> (SMTPConnection s -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
 
-sendMimeMail :: BSStream s => String -> String -> String -> LT.Text -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection s -> IO ()
+sendMimeMail :: BSStream s => String -> String -> String -> LT.Text
+             -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection s -> IO ()
 sendMimeMail to from subject plainBody htmlBody attachments con = do
-  myMail <-  simpleMail (T.pack to) (T.pack from) (T.pack subject) plainBody htmlBody attachments
+  myMail <- simpleMail (T.pack to) (T.pack from) (T.pack subject)
+            plainBody htmlBody attachments
   renderedMail <- renderMail' myMail
   sendMail from [to] (lazyToStrict renderedMail) con
   closeSMTP con
