@@ -21,7 +21,7 @@ module Network.HaskellNet.SMTP
     where
 
 import Network.HaskellNet.BSStream
-import Data.ByteString (ByteString, append)
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 import Network.BSD (getHostName)
 import Network
@@ -29,8 +29,7 @@ import Network
 import Control.Exception
 import Control.Monad (unless)
 
-import Data.List (intersperse)
-import Data.Char (chr, ord, isSpace, isDigit)
+import Data.Char (isDigit)
 
 import Network.HaskellNet.Auth
 
@@ -40,10 +39,8 @@ import Network.Mail.Mime
 import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString as S
 
-import Data.Text (Text)
 import qualified Data.Text.Lazy as LT
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 
 import Prelude hiding (catch)
 
@@ -87,37 +84,7 @@ data Response = Ok
               | ExceededStorage
               | MailboxNotAllowed
               | TransactionFailed
-                    deriving (Show, Eq)
-
-codeToResponse :: Num a => a -> Response
-codeToResponse 211 = SystemStatus
-codeToResponse 214 = HelpMessage
-codeToResponse 220 = ServiceReady
-codeToResponse 221 = ServiceClosing
-codeToResponse 250 = Ok
-codeToResponse 251 = UserNotLocal
-codeToResponse 252 = CannotVerify
-codeToResponse 354 = StartMailInput
-codeToResponse 421 = ServiceNotAvailable
-codeToResponse 450 = MailboxUnavailable
-codeToResponse 451 = ErrorInProcessing
-codeToResponse 452 = InsufficientSystemStorage
-codeToResponse 500 = SyntaxError
-codeToResponse 501 = ParameterError
-codeToResponse 502 = CommandNotImplemented
-codeToResponse 503 = BadSequence
-codeToResponse 504 = ParameterNotImplemented
-codeToResponse 550 = MailboxUnavailableError
-codeToResponse 551 = UserNotLocalError
-codeToResponse 552 = ExceededStorage
-codeToResponse 553 = MailboxNotAllowed
-codeToResponse 554 = TransactionFailed
-
-crlf = BS.pack "\r\n"
-
-isRight :: Either a b -> Bool
-isRight (Right _) = True
-isRight _         = False
+                deriving (Show, Eq)
 
 -- | connecting SMTP server with the specified name and port number.
 connectSMTPPort :: String     -- ^ name of the server
@@ -131,20 +98,27 @@ connectSMTP :: String     -- ^ name of the server
             -> IO (SMTPConnection Handle)
 connectSMTP = flip connectSMTPPort 25
 
+tryCommand :: BSStream s => s -> Command -> Int -> ReplyCode
+           -> IO ByteString
+tryCommand st cmd tries expectedReply | tries <= 0 = do
+  bsClose st
+  fail $ "cannot execute command " ++ show cmd ++
+           ", expected reply code " ++ show expectedReply
+tryCommand st cmd tries expectedReply = do
+  (code, msg) <- sendCommand (SMTPC st []) cmd
+  if code == expectedReply then
+      return msg else
+      tryCommand st cmd (tries - 1) expectedReply
+
 -- | create SMTPConnection from already connected Stream
 connectStream :: BSStream s => s -> IO (SMTPConnection s)
 connectStream st =
-    do (code, msg) <- parseResponse st
-       unless (code == 220) $
+    do (code1, _) <- parseResponse st
+       unless (code1 == 220) $
               do bsClose st
                  fail "cannot connect to the server"
        senderHost <- getHostName
-       (code, msg) <- sendCommand (SMTPC st []) (EHLO senderHost)
-       unless (code == 250) $
-              do (code, msg) <- sendCommand (SMTPC st []) (HELO senderHost)
-                 unless (code == 250) $
-                        do bsClose st
-                           fail "cannot connect to the server"
+       msg <- tryCommand st (EHLO senderHost) 3 250
        return (SMTPC st (tail $ BS.lines msg))
 
 parseResponse :: BSStream s => s -> IO (ReplyCode, ByteString)
@@ -155,8 +129,8 @@ parseResponse st =
               do l <- bsGetLine st
                  let (c, bdy) = BS.span isDigit l
                  if not (BS.null bdy) && BS.head bdy == '-'
-                    then do (c, ls) <- readLines
-                            return (c, (BS.tail bdy:ls))
+                    then do (c2, ls) <- readLines
+                            return (c2, (BS.tail bdy:ls))
                     else return (c, [BS.tail bdy])
 
 
@@ -165,16 +139,16 @@ sendCommand :: BSStream s => SMTPConnection s -> Command
             -> IO (ReplyCode, ByteString)
 sendCommand (SMTPC conn _) (DATA dat) =
     do bsPutCrLf conn $ BS.pack "DATA"
-       (code, msg) <- parseResponse conn
+       (code, _) <- parseResponse conn
        unless (code == 354) $ fail "this server cannot accept any data."
        mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]
        parseResponse conn
     where sendLine l = bsPutCrLf conn l
 sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
     do bsPutCrLf conn command
-       (code, msg) <- parseResponse conn
+       (_, _) <- parseResponse conn
        bsPutCrLf conn $ BS.pack userB64
-       (code, msg) <- parseResponse conn
+       (_, _) <- parseResponse conn
        bsPutCrLf conn $ BS.pack passB64
        parseResponse conn
     where command = BS.pack $ "AUTH LOGIN"
@@ -202,11 +176,15 @@ sendCommand (SMTPC conn _) meth =
                       NOOP         -> "NOOP"
                       RSET         -> "RSET"
                       QUIT         -> "QUIT"
+                      (DATA _)     ->
+                          error "BUG: DATA pattern should be matched by sendCommand patterns"
+                      (AUTH _ _ _)     ->
+                          error "BUG: AUTH pattern should be matched by sendCommand patterns"
 
 -- | close the connection.  This function send the QUIT method, so you
 -- do not have to QUIT method explicitly.
 closeSMTP :: BSStream s => SMTPConnection s -> IO ()
-closeSMTP c@(SMTPC conn _) = do bsClose conn
+closeSMTP (SMTPC conn _) = bsClose conn
 
 {-
 I must be being stupid here
@@ -266,5 +244,6 @@ sendMimeMail to from subject plainBody htmlBody attachments con = do
 
 -- haskellNet uses strict bytestrings
 -- TODO: look at making haskellnet lazy
+lazyToStrict :: B.ByteString -> S.ByteString
 lazyToStrict = S.concat . B.toChunks
 

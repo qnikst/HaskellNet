@@ -3,6 +3,8 @@
 -- Parsec.
 module Text.Packrat.Parse where
 
+import Prelude hiding (exp, rem)
+
 import Char
 import List
 
@@ -56,7 +58,7 @@ instance Derivs d => MonadPlus (Parser d) where
 (<|>) :: Derivs d => Parser d v -> Parser d v -> Parser d v
 (Parser p1) <|> (Parser p2) = Parser parse
     where parse dvs = first dvs (p1 dvs)
-          first dvs (result @ (Parsed val rem err)) = result
+          first _ (result @ (Parsed _ _ _)) = result
           first dvs (NoParse err) = second err (p2 dvs)
           second err1 (Parsed val rem err) =
               Parsed val rem (joinErrors err1 err)
@@ -66,19 +68,19 @@ instance Derivs d => MonadPlus (Parser d) where
 satisfy :: Derivs d => Parser d v -> (v -> Bool) -> Parser d v
 satisfy (Parser p) test = Parser parse
     where parse dvs = check dvs (p dvs)
-          check dvs (result @ (Parsed val rem err)) =
+          check dvs (result @ (Parsed val _ _)) =
               if test val
               then result
               else NoParse (nullError dvs)
-          check dvs none = none
+          check _ none = none
 
 notFollowedBy :: (Derivs d, Show v) => Parser d v -> Parser d ()
 notFollowedBy (Parser p) = Parser parse
     where parse dvs = case (p dvs) of
-                        Parsed val rem err ->
+                        Parsed val _ _ ->
                             NoParse (msgError (dvPos dvs)
                                      ("unexpected " ++ show val))
-                        NoParse err -> Parsed () dvs (nullError dvs)
+                        NoParse _ -> Parsed () dvs (nullError dvs)
 
 optional :: Derivs d => Parser d v -> Parser d (Maybe v)
 optional p = (do v <- p; return (Just v)) <|> return Nothing
@@ -138,6 +140,7 @@ chainr :: Derivs d => Parser d v -> Parser d (v->v->v) -> v -> Parser d v
 chainr p psep z = chainr1 p psep <|> return z
 
 choice :: Derivs d => [Parser d v] -> Parser d v
+choice [] = error "choice requires non-empty list"
 choice [p] = p
 choice (p:ps) = p <|> choice ps
 
@@ -161,7 +164,7 @@ instance Eq Message where
     _ == _                      = False
 
 failAt :: Derivs d => Pos -> String -> Parser d v
-failAt pos msg = Parser (\dvs -> NoParse (msgError pos msg))
+failAt pos msg = Parser (const $ NoParse (msgError pos msg))
 
 -- Annotate a parser with a description of the construct to be parsed.
 -- The resulting parser yields an "expected" error message
@@ -175,8 +178,8 @@ failAt pos msg = Parser (\dvs -> NoParse (msgError pos msg))
               Parsed v rem (fix dvs err)
           munge dvs (NoParse err) =
               NoParse (fix dvs err)
-          fix dvs (err @ (ParseError p ms)) =
-              if p > dvPos dvs
+          fix dvs (err @ (ParseError ep _)) =
+              if ep > dvPos dvs
               then err
               else expError (dvPos dvs) desc
 
@@ -188,23 +191,28 @@ failAt pos msg = Parser (\dvs -> NoParse (msgError pos msg))
               Parsed v rem (fix dvs err)
           munge dvs (NoParse err) =
               NoParse (fix dvs err)
-          fix dvs (err @ (ParseError p ms)) =
+          fix dvs (ParseError _ _) =
               expError (dvPos dvs) desc
 
 -- Potentially join two sets of ParseErrors,
 -- but only if the position didn't change from the first to the second.
 -- If it did, just return the "new" (second) set of errors.
+joinErrors :: ParseError -> ParseError -> ParseError
 joinErrors (e @ (ParseError p m)) (e' @ (ParseError p' m'))
     | p' > p || null m  = e'
     | p > p' || null m' = e
     | otherwise         = ParseError p (m `union` m')
 
+nullError :: Derivs d => d -> ParseError
 nullError dvs = ParseError (dvPos dvs) []
 
+expError :: Pos -> String -> ParseError
 expError pos desc = ParseError pos [Expected desc]
 
+msgError :: Pos -> String -> ParseError
 msgError pos msg = ParseError pos [Message msg]
 
+eofError :: Derivs d => d -> ParseError
 eofError dvs = msgError (dvPos dvs) "end of input"
 
 expected :: Derivs d => String -> Parser d v
@@ -216,17 +224,17 @@ unexpected str = fail ("unexpected " ++ str)
 
 -- Comparison operators for ParseError just compare relative positions.
 instance Eq ParseError where
-    ParseError p1 m1 == ParseError p2 m2  = p1 == p2
-    ParseError p1 m1 /= ParseError p2 m2  = p1 /= p2
+    ParseError p1 _ == ParseError p2 _  = p1 == p2
+    ParseError p1 _ /= ParseError p2 _  = p1 /= p2
 
 instance Ord ParseError where
-    ParseError p1 m1 < ParseError p2 m2   = p1 < p2
-    ParseError p1 m1 > ParseError p2 m2   = p1 > p2
-    ParseError p1 m1 <= ParseError p2 m2  = p1 <= p2
-    ParseError p1 m1 >= ParseError p2 m2  = p1 >= p2
+    ParseError p1 _ < ParseError p2 _   = p1 < p2
+    ParseError p1 _ > ParseError p2 _   = p1 > p2
+    ParseError p1 _ <= ParseError p2 _  = p1 <= p2
+    ParseError p1 _ >= ParseError p2 _  = p1 >= p2
     -- Special behavior: "max" joins two errors
     max p1 p2 = joinErrors p1 p2
-    min p1 p2 = undefined
+    min _ _ = undefined
 
 instance Show ParseError where
     show (ParseError pos []) = 
@@ -235,17 +243,18 @@ instance Show ParseError where
         where expects = getExpects msgs
               getExpects [] = []
               getExpects (Expected exp : rest) = exp : getExpects rest
-              getExpects (Message msg : rest) = getExpects rest
+              getExpects (Message _ : rest) = getExpects rest
               expectmsg [] = ""
               expectmsg [exp] = show pos ++ ": expecting " ++ exp ++ "\n"
               expectmsg [e1, e2] = show pos ++ ": expecting either "
                                      ++ e1 ++ " or " ++ e2 ++ "\n"
               expectmsg (first : rest) = show pos ++ ": expecting one of: "
                                            ++ first ++ expectlist rest ++ "\n"
-              expectlist [last] = ", or " ++ last
+              expectlist [] = ""
+              expectlist [lst] = ", or " ++ lst
               expectlist (mid : rest) = ", " ++ mid ++ expectlist rest
               messages [] = []
-              messages (Expected exp : rest) = messages rest
+              messages (Expected _ : rest) = messages rest
               messages (Message msg : rest) =
                   show pos ++ ": " ++ msg ++ "\n" ++ messages rest
 
@@ -276,6 +285,7 @@ string str = p str <?> show str
           p (ch:chs) = do { char ch; p chs }
 
 stringFrom :: Derivs d => [String] -> Parser d String
+stringFrom [] = error "stringFrom requires non-empty list"
 stringFrom [str] = string str
 stringFrom (str : strs) = string str <|> stringFrom strs
 
@@ -333,6 +343,6 @@ getPos = Parser (\dvs -> Parsed (dvPos dvs) dvs (nullError dvs))
 dvString :: Derivs d => d -> String
 dvString d =
     case dvChar d of
-      NoParse err -> []
-      Parsed c rem err -> (c : dvString rem)
+      NoParse _ -> []
+      Parsed c rem _ -> (c : dvString rem)
 

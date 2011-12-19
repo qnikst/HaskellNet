@@ -103,8 +103,8 @@ instance Derivs RespDerivs where
 
 eval :: (RespDerivs -> Result RespDerivs r) -> String -> ByteString -> r
 eval pMain tag s = case pMain (parse tag (Pos tag 1 1) s) of
-                     Parsed v d' e' -> v
-                     NoParse e      -> error (show e)
+                     Parsed v _ _ -> v
+                     NoParse e    -> error (show e)
 
 
 parse :: String -> Pos -> ByteString -> RespDerivs
@@ -120,8 +120,8 @@ parse tagstr pos s = d
 
 eval' :: (RespDerivs -> Result RespDerivs r) -> String -> String -> r
 eval' pMain tag s = case pMain (parse' tag (Pos tag 1 1) s) of
-                      Parsed v d' e' -> v
-                      NoParse e      -> error (show e)
+                      Parsed v _ _ -> v
+                      NoParse e    -> error (show e)
 
 parse' :: String -> Pos -> String -> RespDerivs
 parse' tagstr pos s = d
@@ -133,9 +133,10 @@ parse' tagstr pos s = d
                                (nullError d)
                    _      -> NoParse (eofError d)
 
-mkMboxUpdate untagged = (MboxUpdate exists recent, others)
-    where exists = lookup "EXISTS" $ catLefts untagged
-          recent = lookup "RECENT" $ catLefts untagged
+mkMboxUpdate :: [Either (String, Integer) b] -> (MboxUpdate, [b])
+mkMboxUpdate untagged = (MboxUpdate exists' recent', others)
+    where exists' = lookup "EXISTS" $ catLefts untagged
+          recent' = lookup "RECENT" $ catLefts untagged
           others = catRights untagged
 
 pNone :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, ())
@@ -338,7 +339,7 @@ pListLine list =
 pStatusLine :: Parser RespDerivs (Either a [(MailboxStatus, Integer)])
 pStatusLine =
     do string "* STATUS "
-       mbox <- anyChar `manyTill` space
+       _ <- anyChar `manyTill` space
        stats <- between (char '(') (char ')') (parseStat `sepBy1` space)
        crlfP
        return $ Right stats
@@ -375,8 +376,8 @@ pSelectLine =
           okResps =
               do char '['
                  v <- choice [ do { string "UNSEEN "
-                                  ; n <- many1 digit
-                                  ; return $ id }
+                                  ; many1 digit
+                                  ; return id }
                              , do { string "PERMANENTFLAGS ("
                                   ; fs <- pFlag `sepBy` space
                                   ; char ')'
@@ -440,7 +441,10 @@ pFetchLine =
 
 ----------------------------------------------------------------------
 -- auxiliary parsers
+space :: Parser RespDerivs Char
 space   = char ' '
+
+spaces, spaces1 :: Parser RespDerivs String
 spaces  = many space
 spaces1 = many1 space
 

@@ -23,6 +23,7 @@ Source-Repository head
 
 Library
   Hs-Source-Dirs: src
+  GHC-Options: -Wall -fno-warn-unused-do-bind
 
   Exposed-modules:
     Text.IMAPParsers

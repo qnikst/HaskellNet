@@ -9,16 +9,9 @@ module Network.HaskellNet.Debug
 import Network
 import Network.HaskellNet.BSStream
 
-import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 
 import System.IO
-
-import Data.IORef
-import Control.Monad
-
-import Foreign.ForeignPtr
-import Foreign.Ptr
 
 newtype (BSStream s) => DebugStream s = DS s
 

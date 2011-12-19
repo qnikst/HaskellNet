@@ -35,17 +35,14 @@ import qualified Network.HaskellNet.Auth as A
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 
-import Data.Digest.MD5
 import Control.Applicative ((<$>))
 import Control.Monad
-import Control.Monad.Writer
 
 import System.IO
 import System.Time
 
 import Data.IORef
 import Data.Maybe
-import Data.Word
 import Data.List hiding (delete)
 import Data.Char
 
@@ -120,7 +117,7 @@ instance Show SearchQuery where
               showQuery (HEADERs f v)   = "HEADER " ++ f ++ " " ++ v
               showQuery (LARGERs siz)   = "LARGER {" ++ show siz ++ "}"
               showQuery NEWs            = "NEW"
-              showQuery (NOTs q)        = "NOT " ++ show q
+              showQuery (NOTs qry)      = "NOT " ++ show qry
               showQuery OLDs            = "OLD"
               showQuery (ONs t)         = "ON " ++ dateToStringIMAP t
               showQuery (ORs q1 q2)     = "OR " ++ show q1 ++ " " ++ show q2 
@@ -165,17 +162,19 @@ connectStream s =
        c <- newIORef 0
        return $ IMAPC s mbox c
 
+emptyMboxInfo :: MailboxInfo
 emptyMboxInfo = MboxInfo "" 0 0 [] [] False False 0 0
 
 ----------------------------------------------------------------------
 -- normal send commands
 sendCommand' :: BSStream s => IMAPConnection s -> String -> IO ByteString
-sendCommand' (IMAPC s mbox nr) cmdstr =
+sendCommand' (IMAPC s _ nr) cmdstr =
     do num <- readIORef nr
        bsPutCrLf s $ BS.pack $ show6 num ++ " " ++ cmdstr
        modifyIORef nr (+1)
        getResponse s
 
+show6 :: (Ord a, Num a) => a -> String
 show6 n | n > 100000 = show n
         | n > 10000  = '0' : show n
         | n > 1000   = "00" ++ show n
@@ -199,7 +198,7 @@ sendCommand imapc@(IMAPC _ mbox nr) cmdstr pFunc =
 
 getResponse :: BSStream s => s -> IO ByteString
 getResponse s = unlinesCRLF <$> getLs
-    where unlinesCRLF = BS.concat . concatMap (:[crlf])
+    where unlinesCRLF = BS.concat . concatMap (:[crlfStr])
           getLs =
               do l <- strip <$> bsGetLine s
                  case () of
@@ -211,52 +210,53 @@ getResponse s = unlinesCRLF <$> getLs
           getLiteral l len = 
               do lit <- bsGet s len
                  l2 <- strip <$> bsGetLine s
-                 let l' = BS.concat [l, crlf, lit, l2]
+                 let l' = BS.concat [l, crlfStr, lit, l2]
                  if isLiteral l2
                    then getLiteral l' (getLitLen l2)
                    else return l'
-          crlf = BS.pack "\r\n"
+          crlfStr = BS.pack "\r\n"
           isLiteral l = BS.last l == '}' &&
                         BS.last (fst (BS.spanEnd isDigit (BS.init l))) == '{'
           getLitLen = read . BS.unpack . snd . BS.spanEnd isDigit . BS.init
           isTagged l = BS.head l == '*' && BS.head (BS.tail l) == ' '
 
 mboxUpdate :: IORef MailboxInfo -> MboxUpdate -> IO ()
-mboxUpdate mbox (MboxUpdate exists recent) =
-    do when (isJust exists) $ do mb <- readIORef mbox
-                                 writeIORef mbox (mb { _exists = e })
-       when (isJust recent) $ do mb <- readIORef mbox
-                                 writeIORef mbox (mb { _recent = r })
-    where e = fromJust exists
-          r = fromJust recent
+mboxUpdate mbox (MboxUpdate exists' recent') =
+    do when (isJust exists') $ do mb <- readIORef mbox
+                                  writeIORef mbox (mb { _exists = e })
+       when (isJust recent') $ do mb <- readIORef mbox
+                                  writeIORef mbox (mb { _recent = r })
+    where e = fromJust exists'
+          r = fromJust recent'
 
 ----------------------------------------------------------------------
 -- IMAP commands
 --
 
 noop :: BSStream s => IMAPConnection s -> IO ()
-noop conn@(IMAPC s mbox _) = sendCommand conn "NOOP" pNone
+noop conn@(IMAPC _ _ _) = sendCommand conn "NOOP" pNone
 
 capability :: BSStream s => IMAPConnection s -> IO [String]
 capability conn = sendCommand conn "CAPABILITY" pCapability
 
 logout :: BSStream s => IMAPConnection s -> IO ()
-logout conn@(IMAPC s _ _) = do bsPutCrLf s $ BS.pack "a0001 LOGOUT"
-                               bsClose s
+logout (IMAPC s _ _) = do bsPutCrLf s $ BS.pack "a0001 LOGOUT"
+                          bsClose s
 
 login :: BSStream s => IMAPConnection s -> UserName -> Password -> IO ()
-login conn user pass = sendCommand conn ("LOGIN " ++ user ++ " " ++ pass)
-                       pNone
+login conn username password = sendCommand conn ("LOGIN " ++ username ++ " " ++ password)
+                               pNone
 
 select, examine, create, delete :: BSStream s =>
                                    IMAPConnection s -> Mailbox -> IO ()
-_select cmd conn@(IMAPC s mbox _) mboxName =
+_select :: (BSStream s) => String -> IMAPConnection s -> String -> IO ()
+_select cmd conn@(IMAPC _ mbox _) mboxName =
     do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
        writeIORef mbox (mbox' { _mailbox = mboxName })
 
 authenticate :: BSStream s => IMAPConnection s -> AuthType
              -> UserName -> Password -> IO ()
-authenticate conn@(IMAPC s mbox nr) LOGIN user pass =
+authenticate conn@(IMAPC s mbox nr) LOGIN username password =
     do num <- readIORef nr
        sendCommand' conn "AUTHENTICATE LOGIN"
        bsPutCrLf s $ BS.pack userB64
@@ -270,8 +270,8 @@ authenticate conn@(IMAPC s mbox nr) LOGIN user pass =
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
-    where (userB64, passB64) = A.login user pass
-authenticate conn@(IMAPC s mbox nr) at user pass =
+    where (userB64, passB64) = A.login username password
+authenticate conn@(IMAPC s mbox nr) at username password =
     do num <- readIORef nr
        c <- sendCommand' conn $ "AUTHENTICATE " ++ show at
        let challenge =
@@ -279,7 +279,7 @@ authenticate conn@(IMAPC s mbox nr) at user pass =
                then b64Decode $ BS.unpack $ head $
                     dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
                else ""
-       bsPutCrLf s $ BS.pack $ A.auth at challenge user pass
+       bsPutCrLf s $ BS.pack $ A.auth at challenge username password
        buf <- getResponse s
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
@@ -306,11 +306,6 @@ list, lsub :: BSStream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
 list conn = (map (\(a, _, m) -> (a, m))) <$> listFull conn "\"\"" "*"
 lsub conn = (map (\(a, _, m) -> (a, m))) <$> lsubFull conn "\"\"" "*"
 
-listPat, lsubPat :: BSStream s => IMAPConnection s -> String
-                 -> IO [([Attribute], String, Mailbox)]
-listPat conn pat = listFull conn "\"\"" pat
-lsubPat conn pat = lsubFull conn "\"\"" pat
-
 listFull, lsubFull :: BSStream s => IMAPConnection s -> String -> String
                    -> IO [([Attribute], String, Mailbox)]
 listFull conn ref pat = sendCommand conn (unwords ["LIST", ref, pat]) pList
@@ -327,7 +322,7 @@ append conn mbox mailData = appendFull conn mbox mailData [] Nothing
 
 appendFull :: BSStream s => IMAPConnection s -> Mailbox -> ByteString
            -> [Flag] -> Maybe CalendarTime -> IO ()
-appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags time =
+appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags' time =
     do num <- readIORef nr
        buf <- sendCommand' conn
                 (unwords ["APPEND", mbox
@@ -335,8 +330,8 @@ appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags time =
        unless (BS.null buf || (BS.head buf /= '+')) $
               fail "illegal server response"
        mapM_ (bsPutCrLf s) mailLines
-       buf <- getResponse s
-       let (resp, mboxUp, ()) = eval pNone (show6 num) buf
+       buf2 <- getResponse s
+       let (resp, mboxUp, ()) = eval pNone (show6 num) buf2
        case resp of
          OK _ _ -> mboxUpdate mbInfo mboxUp
          NO _ msg -> fail ("NO: "++msg)
@@ -345,13 +340,13 @@ appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags time =
     where mailLines = BS.lines mailData
           len       = sum $ map ((2+) . BS.length) mailLines
           tstr      = maybe "" show time
-          fstr      = unwords $ map show flags
+          fstr      = unwords $ map show flags'
 
 check :: BSStream s => IMAPConnection s -> IO ()
 check conn = sendCommand conn "CHECK" pNone
 
 close :: BSStream s => IMAPConnection s -> IO ()
-close conn@(IMAPC s mbox _) =
+close conn@(IMAPC _ mbox _) =
     do sendCommand conn "CLOSE" pNone
        writeIORef mbox emptyMboxInfo
 
@@ -420,47 +415,35 @@ fetchByStringR conn (s, e) command =
     where proc (n, ps) =
               (maybe (toEnum (fromIntegral n)) read (lookup "UID" ps), ps)
 
+fetchCommand :: (BSStream s) => IMAPConnection s -> String
+             -> ((Integer, [(String, String)]) -> b) -> IO [b]
 fetchCommand conn command proc =
     (map proc) <$> sendCommand conn command pFetch
 
 storeFull :: BSStream s => IMAPConnection s -> String -> FlagsQuery -> Bool
           -> IO [(UID, [Flag])]
 storeFull conn uidstr query isSilent =
-    fetchCommand conn ("UID STORE " ++ uidstr ++ flags query) procStore
+    fetchCommand conn ("UID STORE " ++ uidstr ++ flgs query) procStore
     where fstrs fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
-          toFStr s fstrs =
-              s ++ (if isSilent then ".SILENT" else "") ++ " " ++ fstrs
-          flags (ReplaceFlags fs) = toFStr "FLAGS" $ fstrs fs
-          flags (PlusFlags fs)    = toFStr "+FLAGS" $ fstrs fs
-          flags (MinusFlags fs)   = toFStr "-FLAGS" $ fstrs fs
+          toFStr s fstrs' =
+              s ++ (if isSilent then ".SILENT" else "") ++ " " ++ fstrs'
+          flgs (ReplaceFlags fs) = toFStr "FLAGS" $ fstrs fs
+          flgs (PlusFlags fs)    = toFStr "+FLAGS" $ fstrs fs
+          flgs (MinusFlags fs)   = toFStr "-FLAGS" $ fstrs fs
           procStore (n, ps) = (maybe (toEnum (fromIntegral n)) read
                                          (lookup "UID" ps)
                               ,maybe [] (eval' dvFlags "") (lookup "FLAG" ps))
 
 
 store :: BSStream s => IMAPConnection s -> UID -> FlagsQuery -> IO ()
-storeR :: BSStream s => IMAPConnection s -> (UID, UID) -> FlagsQuery -> IO ()
 store conn i q       = storeFull conn (show i) q True >> return ()
-storeR conn (s, e) q = storeFull conn (show s++":"++show e) q True >> return ()
 
--- storeResults is used without .SILENT, so that its response contains
--- its result flags
-storeResults :: BSStream s => IMAPConnection s -> UID -> FlagsQuery
-             -> IO [Flag]
-storeResultsR :: BSStream s => IMAPConnection s -> (UID, UID) -> FlagsQuery
-              -> IO [(UID, [Flag])]
-storeResults conn i q       =
-    storeFull conn (show i) q False >>= return . snd . head
-storeResultsR conn (s, e) q = storeFull conn (show s++":"++show e) q False
-
-copy :: BSStream s => IMAPConnection s -> UID -> Mailbox -> IO ()
-copyR :: BSStream s => IMAPConnection s -> (UID, UID) -> Mailbox -> IO ()
+copyFull :: (BSStream s) => IMAPConnection s -> String -> String -> IO ()
 copyFull conn uidStr mbox =
     sendCommand conn ("UID COPY " ++ uidStr ++ " " ++ mbox) pNone
 
+copy :: BSStream s => IMAPConnection s -> UID -> Mailbox -> IO ()
 copy conn uid mbox     = copyFull conn (show uid) mbox
-copyR conn (s, e) mbox = copyFull conn (show s++":"++show e) mbox
-
 
 ----------------------------------------------------------------------
 -- auxialiary functions

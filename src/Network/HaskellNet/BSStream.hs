@@ -1,6 +1,4 @@
 -- |A library for abstracting sockets suitable to Streams.
------------------------------------------------------------------------------
-
 module Network.HaskellNet.BSStream
     ( BSStream(..)
     )
@@ -8,12 +6,7 @@ where
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
-import Control.Monad.Trans
 import System.IO
-import System.IO.Unsafe (unsafeInterleaveIO)
-import Network
-
-
 
 class BSStream h where
     bsGetLine :: h -> IO ByteString
@@ -31,11 +24,9 @@ class BSStream h where
     bsPutCrLf h s = bsPut h s >> bsPut h crlf
     bsPutStrLn h s = bsPut h s >> bsPut h lf
 
-lf   = BS.singleton '\n' 
+lf, crlf :: BS.ByteString
+lf   = BS.singleton '\n'
 crlf = BS.pack "\r\n"
-
-blocklen = 4096
-waiting = 500 -- miliseconds
 
 instance BSStream Handle where
     bsGetLine = BS.hGetLine
