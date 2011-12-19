@@ -7,13 +7,13 @@ import Data.Char
 import Data.ByteString (ByteString)
 
 popServer = "pop3.mail.org"
-user = ""
-pass = ""
+username = ""
+password = ""
 
 main = do
   con <- connectPop3 popServer
   print "connected"
-  userPass con user pass
+  userPass con username password
   num <- list con 4
   print $ "num " ++ (show num)
   msg <- retr con 1
