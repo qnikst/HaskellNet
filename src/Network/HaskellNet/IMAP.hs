@@ -79,9 +79,6 @@ uidValidity (IMAPC _ mbox _) = _uidValidity <$> readIORef mbox
 stream :: BSStream s => IMAPConnection s -> s
 stream (IMAPC s _ _) = s
 
-
-
-
 -- suffixed by `s'
 data SearchQuery = ALLs
                  | FLAG Flag
@@ -135,7 +132,8 @@ instance Show SearchQuery where
               showQuery (SUBJECTs s)    = "SUBJECT " ++ s
               showQuery (TEXTs s)       = "TEXT " ++ s
               showQuery (TOs addr)      = "TO " ++ addr
-              showQuery (UIDs uids)     = concat $ intersperse "," $ map show uids
+              showQuery (UIDs uids)     = concat $ intersperse "," $
+                                          map show uids
               showFlag Seen        = "SEEN"
               showFlag Answered    = "ANSWERED"
               showFlag Flagged     = "FLAGGED"
@@ -152,7 +150,8 @@ data FlagsQuery = ReplaceFlags [Flag]
 -- establish connection
 
 connectIMAPPort :: String -> PortNumber -> IO (IMAPConnection Handle)
-connectIMAPPort hostname port = connectTo hostname (PortNumber port) >>= connectStream
+connectIMAPPort hostname port =
+    connectTo hostname (PortNumber port) >>= connectStream
 
 connectIMAP :: String -> IO (IMAPConnection Handle)
 connectIMAP hostname = connectIMAPPort hostname 143
@@ -160,7 +159,8 @@ connectIMAP hostname = connectIMAPPort hostname 143
 connectStream :: BSStream s => s -> IO (IMAPConnection s)
 connectStream s =
     do msg <- bsGetLine s
-       unless (and $ BS.zipWith (==) msg (BS.pack "* OK")) $ fail "cannot connect to the server"
+       unless (and $ BS.zipWith (==) msg (BS.pack "* OK")) $
+              fail "cannot connect to the server"
        mbox <- newIORef emptyMboxInfo
        c <- newIORef 0
        return $ IMAPC s mbox c
@@ -183,7 +183,9 @@ show6 n | n > 100000 = show n
         | n > 10     = "0000" ++ show n
         | otherwise  = "00000" ++ show n
 
-sendCommand :: BSStream s => IMAPConnection s -> String -> (RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, v)) -> IO v
+sendCommand :: BSStream s => IMAPConnection s -> String
+            -> (RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, v))
+            -> IO v
 sendCommand imapc@(IMAPC _ mbox nr) cmdstr pFunc =
     do num <- readIORef nr
        buf <- sendCommand' imapc cmdstr
@@ -198,7 +200,7 @@ sendCommand imapc@(IMAPC _ mbox nr) cmdstr pFunc =
 getResponse :: BSStream s => s -> IO ByteString
 getResponse s = unlinesCRLF <$> getLs
     where unlinesCRLF = BS.concat . concatMap (:[crlf])
-          getLs = 
+          getLs =
               do l <- strip <$> bsGetLine s
                  case () of
                    _ | isLiteral l ->  do l' <- getLiteral l (getLitLen l)
@@ -214,7 +216,8 @@ getResponse s = unlinesCRLF <$> getLs
                    then getLiteral l' (getLitLen l2)
                    else return l'
           crlf = BS.pack "\r\n"
-          isLiteral l = BS.last l == '}' && BS.last (fst (BS.spanEnd isDigit (BS.init l))) == '{'
+          isLiteral l = BS.last l == '}' &&
+                        BS.last (fst (BS.spanEnd isDigit (BS.init l))) == '{'
           getLitLen = read . BS.unpack . snd . BS.spanEnd isDigit . BS.init
           isTagged l = BS.head l == '*' && BS.head (BS.tail l) == ' '
 
@@ -242,7 +245,8 @@ logout conn@(IMAPC s _ _) = do bsPutCrLf s $ BS.pack "a0001 LOGOUT"
                                bsClose s
 
 login :: BSStream s => IMAPConnection s -> UserName -> Password -> IO ()
-login conn user pass = sendCommand conn ("LOGIN " ++ user ++ " " ++ pass) pNone
+login conn user pass = sendCommand conn ("LOGIN " ++ user ++ " " ++ pass)
+                       pNone
 
 select, examine, create, delete :: BSStream s =>
                                    IMAPConnection s -> Mailbox -> IO ()
@@ -250,7 +254,8 @@ _select cmd conn@(IMAPC s mbox _) mboxName =
     do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
        writeIORef mbox (mbox' { _mailbox = mboxName })
 
-authenticate :: BSStream s => IMAPConnection s -> AuthType -> UserName -> Password -> IO ()
+authenticate :: BSStream s => IMAPConnection s -> AuthType
+             -> UserName -> Password -> IO ()
 authenticate conn@(IMAPC s mbox nr) LOGIN user pass =
     do num <- readIORef nr
        sendCommand' conn "AUTHENTICATE LOGIN"
@@ -271,7 +276,8 @@ authenticate conn@(IMAPC s mbox nr) at user pass =
        c <- sendCommand' conn $ "AUTHENTICATE " ++ show at
        let challenge =
                if BS.take 2 c == BS.pack "+ "
-               then b64Decode $ BS.unpack $ head $ dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
+               then b64Decode $ BS.unpack $ head $
+                    dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
                else ""
        bsPutCrLf s $ BS.pack $ A.auth at challenge user pass
        buf <- getResponse s
@@ -300,28 +306,34 @@ list, lsub :: BSStream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
 list conn = (map (\(a, _, m) -> (a, m))) <$> listFull conn "\"\"" "*"
 lsub conn = (map (\(a, _, m) -> (a, m))) <$> lsubFull conn "\"\"" "*"
 
-listPat, lsubPat :: BSStream s => IMAPConnection s -> String -> IO [([Attribute], String, Mailbox)]
+listPat, lsubPat :: BSStream s => IMAPConnection s -> String
+                 -> IO [([Attribute], String, Mailbox)]
 listPat conn pat = listFull conn "\"\"" pat
 lsubPat conn pat = lsubFull conn "\"\"" pat
 
-listFull, lsubFull :: BSStream s => IMAPConnection s -> String -> String -> IO [([Attribute], String, Mailbox)]
+listFull, lsubFull :: BSStream s => IMAPConnection s -> String -> String
+                   -> IO [([Attribute], String, Mailbox)]
 listFull conn ref pat = sendCommand conn (unwords ["LIST", ref, pat]) pList
 lsubFull conn ref pat = sendCommand conn (unwords ["LSUB", ref, pat]) pLsub
 
-status :: BSStream s => IMAPConnection s -> Mailbox -> [MailboxStatus] -> IO [(MailboxStatus, Integer)]
+status :: BSStream s => IMAPConnection s -> Mailbox -> [MailboxStatus]
+       -> IO [(MailboxStatus, Integer)]
 status conn mbox stats =
-    sendCommand conn ("STATUS " ++ mbox ++ " (" ++ (unwords $ map show stats) ++ ")") pStatus
+    let cmd = "STATUS " ++ mbox ++ " (" ++ (unwords $ map show stats) ++ ")"
+    in sendCommand conn cmd pStatus
 
 append :: BSStream s => IMAPConnection s -> Mailbox -> ByteString -> IO ()
 append conn mbox mailData = appendFull conn mbox mailData [] Nothing
 
-appendFull :: BSStream s => IMAPConnection s -> Mailbox -> ByteString -> [Flag] -> Maybe CalendarTime -> IO ()
+appendFull :: BSStream s => IMAPConnection s -> Mailbox -> ByteString
+           -> [Flag] -> Maybe CalendarTime -> IO ()
 appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags time =
     do num <- readIORef nr
        buf <- sendCommand' conn
                 (unwords ["APPEND", mbox
                          , fstr, tstr,  "{" ++ show len ++ "}"])
-       unless (BS.null buf || (BS.head buf /= '+')) $ fail "illegal server response"
+       unless (BS.null buf || (BS.head buf /= '+')) $
+              fail "illegal server response"
        mapM_ (bsPutCrLf s) mailLines
        buf <- getResponse s
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf
@@ -349,12 +361,13 @@ expunge conn = sendCommand conn "EXPUNGE" pExpunge
 search :: BSStream s => IMAPConnection s -> [SearchQuery] -> IO [UID]
 search conn queries = searchCharset conn "" queries
 
-searchCharset :: BSStream s => IMAPConnection s -> Charset -> [SearchQuery] -> IO [UID]
+searchCharset :: BSStream s => IMAPConnection s -> Charset -> [SearchQuery]
+              -> IO [UID]
 searchCharset conn charset queries =
-    sendCommand conn ("UID SEARCH " 
+    sendCommand conn ("UID SEARCH "
                     ++ (if not . null $ charset
                            then charset ++ " "
-                           else "") 
+                           else "")
                     ++ unwords (map show queries)) pSearch
 
 fetch, fetchHeader :: BSStream s => IMAPConnection s -> UID -> IO ByteString
@@ -364,18 +377,23 @@ fetch conn uid =
 fetchHeader conn uid =
     do lst <- fetchByString conn uid "BODY[HEADER]"
        return $ maybe BS.empty BS.pack $ lookup "BODY[HEADER]" lst
+
 fetchSize :: BSStream s => IMAPConnection s -> UID -> IO Int
 fetchSize conn uid =
     do lst <- fetchByString conn uid "RFC822.SIZE"
        return $ maybe 0 read $ lookup "RFC822.SIZE" lst
-fetchHeaderFields, fetchHeaderFieldsNot :: BSStream s => IMAPConnection s -> UID -> [String] -> IO ByteString
+
+fetchHeaderFields, fetchHeaderFieldsNot :: BSStream s => IMAPConnection s
+                                        -> UID -> [String] -> IO ByteString
 fetchHeaderFields conn uid hs =
     do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS "++unwords hs++"]")
        return $ maybe BS.empty BS.pack $
               lookup ("BODY[HEADER.FIELDS "++unwords hs++"]") lst
 fetchHeaderFieldsNot conn uid hs =
-    do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS.NOT "++unwords hs++"]")
-       return $ maybe BS.empty BS.pack $ lookup ("BODY[HEADER.FIELDS.NOT "++unwords hs++"]") lst
+    do let fetchCmd = "BODY[HEADER.FIELDS.NOT "++unwords hs++"]"
+       lst <- fetchByString conn uid fetchCmd
+       return $ maybe BS.empty BS.pack $ lookup fetchCmd lst
+
 fetchFlags :: BSStream s => IMAPConnection s -> UID -> IO [Flag]
 fetchFlags conn uid =
     do lst <- fetchByString conn uid "FLAGS"
@@ -383,15 +401,20 @@ fetchFlags conn uid =
     where getFlags Nothing  = []
           getFlags (Just s) = eval' dvFlags "" s
 
-fetchR :: BSStream s => IMAPConnection s -> (UID, UID) -> IO [(UID, ByteString)]
+fetchR :: BSStream s => IMAPConnection s -> (UID, UID)
+       -> IO [(UID, ByteString)]
 fetchR conn r =
     do lst <- fetchByStringR conn r "BODY[]"
-       return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $ lookup "BODY[]" vs)) lst
-fetchByString :: BSStream s => IMAPConnection s -> UID -> String -> IO [(String, String)]
+       return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $
+                                       lookup "BODY[]" vs)) lst
+fetchByString :: BSStream s => IMAPConnection s -> UID -> String
+              -> IO [(String, String)]
 fetchByString conn uid command =
     do lst <- fetchCommand conn ("UID FETCH "++show uid++" "++command) id
        return $ snd $ head lst
-fetchByStringR :: BSStream s => IMAPConnection s -> (UID, UID) -> String -> IO [(UID, [(String, String)])]
+
+fetchByStringR :: BSStream s => IMAPConnection s -> (UID, UID) -> String
+               -> IO [(UID, [(String, String)])]
 fetchByStringR conn (s, e) command =
     fetchCommand conn ("UID FETCH "++show s++":"++show e++" "++command) proc
     where proc (n, ps) =
@@ -400,7 +423,8 @@ fetchByStringR conn (s, e) command =
 fetchCommand conn command proc =
     (map proc) <$> sendCommand conn command pFetch
 
-storeFull :: BSStream s => IMAPConnection s -> String -> FlagsQuery -> Bool -> IO [(UID, [Flag])]
+storeFull :: BSStream s => IMAPConnection s -> String -> FlagsQuery -> Bool
+          -> IO [(UID, [Flag])]
 storeFull conn uidstr query isSilent =
     fetchCommand conn ("UID STORE " ++ uidstr ++ flags query) procStore
     where fstrs fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
@@ -418,9 +442,13 @@ store :: BSStream s => IMAPConnection s -> UID -> FlagsQuery -> IO ()
 storeR :: BSStream s => IMAPConnection s -> (UID, UID) -> FlagsQuery -> IO ()
 store conn i q       = storeFull conn (show i) q True >> return ()
 storeR conn (s, e) q = storeFull conn (show s++":"++show e) q True >> return ()
--- storeResults is used without .SILENT, so that its response contains its result flags
-storeResults :: BSStream s => IMAPConnection s -> UID -> FlagsQuery -> IO [Flag]
-storeResultsR :: BSStream s => IMAPConnection s -> (UID, UID) -> FlagsQuery -> IO [(UID, [Flag])]
+
+-- storeResults is used without .SILENT, so that its response contains
+-- its result flags
+storeResults :: BSStream s => IMAPConnection s -> UID -> FlagsQuery
+             -> IO [Flag]
+storeResultsR :: BSStream s => IMAPConnection s -> (UID, UID) -> FlagsQuery
+              -> IO [(UID, [Flag])]
 storeResults conn i q       =
     storeFull conn (show i) q False >>= return . snd . head
 storeResultsR conn (s, e) q = storeFull conn (show s++":"++show e) q False
