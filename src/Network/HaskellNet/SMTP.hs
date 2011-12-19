@@ -132,7 +132,7 @@ connectSMTP = flip connectSMTPPort 25
 
 -- | create SMTPConnection from already connected Stream
 connectStream :: BSStream s => s -> IO (SMTPConnection s)
-connectStream st = 
+connectStream st =
     do (code, msg) <- parseResponse st
        unless (code == 220) $
               do bsClose st
@@ -147,7 +147,7 @@ connectStream st =
        return (SMTPC st (tail $ BS.lines msg))
 
 parseResponse :: BSStream s => s -> IO (ReplyCode, ByteString)
-parseResponse st = 
+parseResponse st =
     do (code, bdy) <- readLines
        return (read $ BS.unpack code, BS.unlines bdy)
     where readLines =
@@ -201,8 +201,7 @@ sendCommand (SMTPC conn _) meth =
                       RSET         -> "RSET"
                       QUIT         -> "QUIT"
 
--- | 
--- close the connection.  This function send the QUIT method, so you
+-- | close the connection.  This function send the QUIT method, so you
 -- do not have to QUIT method explicitly.
 closeSMTP :: BSStream s => SMTPConnection s -> IO ()
 closeSMTP c@(SMTPC conn _) = do bsClose conn
@@ -216,8 +215,7 @@ closeSMTP c@(SMTPC conn _) = do sendCommand c QUIT
                                 bsClose conn `catch` \(_ :: IOException) -> return ()
 -}
 
--- | 
--- sending a mail to a server. This is achieved by sendMessage.  If
+-- | sending a mail to a server. This is achieved by sendMessage.  If
 -- something is wrong, it raises an IOexception.
 sendMail :: BSStream s =>
             String     -- ^ sender mail
@@ -234,22 +232,19 @@ sendMail sender receivers dat conn =
                          return ()
           catcher e@(PatternMatchFail _) = throwIO e
 
--- | 
--- doSMTPPort open a connection, and do an IO action with the
+-- | doSMTPPort open a connection, and do an IO action with the
 -- connection, and then close it.
 doSMTPPort :: String -> PortNumber -> (SMTPConnection Handle -> IO a) -> IO a
 doSMTPPort host port execution =
     bracket (connectSMTPPort host port) closeSMTP execution
 
--- | 
--- doSMTP is similar to doSMTPPort, except that it does not
--- require port number but connects to the server with port 25.
+-- | doSMTP is similar to doSMTPPort, except that it does not require
+-- port number but connects to the server with port 25.
 doSMTP :: String -> (SMTPConnection Handle -> IO a) -> IO a
 doSMTP host execution = doSMTPPort host 25 execution
 
--- |
--- doSMTPStream is similar to doSMTPPort, except that its argument is
--- a Stream data instead of hostname and port number.
+-- | doSMTPStream is similar to doSMTPPort, except that its argument
+-- is a Stream data instead of hostname and port number.
 doSMTPStream :: BSStream s => s -> (SMTPConnection s -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
 
