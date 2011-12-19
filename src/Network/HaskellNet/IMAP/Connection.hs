@@ -33,7 +33,7 @@ import Network.HaskellNet.BSStream
 import Network.HaskellNet.IMAP.Types
     ( MailboxInfo(..)
     , emptyMboxInfo
-    , Mailbox
+    , MailboxName
     , Flag
     , UID
     )
@@ -60,7 +60,7 @@ newConnection s = IMAPC s <$> (newIORef emptyMboxInfo) <*> (newIORef 0)
 getMailboxInfo :: IMAPConnection s -> IO MailboxInfo
 getMailboxInfo c = readIORef $ mboxInfo c
 
-mailbox :: IMAPConnection s -> IO Mailbox
+mailbox :: IMAPConnection s -> IO MailboxName
 mailbox c = _mailbox <$> getMailboxInfo c
 
 exists :: IMAPConnection s -> IO Integer

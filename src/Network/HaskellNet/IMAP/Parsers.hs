@@ -62,14 +62,14 @@ Parser pCapability =
        let (mboxUp, caps) = mkMboxUpdate untagged
        return (resp, mboxUp, concat caps)
 
-pList :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [([Attribute], String, Mailbox)])
+pList :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [([Attribute], String, MailboxName)])
 Parser pList =
     do untagged <- many (pListLine "LIST" <|> pOtherLine)
        resp <- Parser pDone
        let (mboxUp, listRes) = mkMboxUpdate untagged
        return (resp, mboxUp, listRes)
 
-pLsub :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [([Attribute], String, Mailbox)])
+pLsub :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [([Attribute], String, MailboxName)])
 Parser pLsub =
     do untagged <- many (pListLine "LSUB" <|> pOtherLine)
        resp <- Parser pDone
@@ -215,7 +215,7 @@ pCapabilityLine = do string "* CAPABILITY "
                      return $ Right ws
 
 pListLine :: String
-          -> Parser RespDerivs (Either a ([Attribute], String, Mailbox))
+          -> Parser RespDerivs (Either a ([Attribute], String, MailboxName))
 pListLine list = 
     do string "* " >> string list >> space
        attrs <- parseAttrs

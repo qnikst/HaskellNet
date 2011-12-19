@@ -244,52 +244,52 @@ _select cmd conn mboxName =
     do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
        setMailboxInfo conn $ mbox' { _mailbox = mboxName }
 
-select :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
+select :: BSStream s => IMAPConnection s -> MailboxName -> IO ()
 select = _select "SELECT "
 
-examine :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
+examine :: BSStream s => IMAPConnection s -> MailboxName -> IO ()
 examine = _select "EXAMINE "
 
-create :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
+create :: BSStream s => IMAPConnection s -> MailboxName -> IO ()
 create conn mboxname = sendCommand conn ("CREATE " ++ mboxname) pNone
 
-delete :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
+delete :: BSStream s => IMAPConnection s -> MailboxName -> IO ()
 delete conn mboxname = sendCommand conn ("DELETE " ++ mboxname) pNone
 
-rename :: BSStream s => IMAPConnection s -> Mailbox -> Mailbox -> IO ()
+rename :: BSStream s => IMAPConnection s -> MailboxName -> MailboxName -> IO ()
 rename conn mboxorg mboxnew =
     sendCommand conn ("RENAME " ++ mboxorg ++ " " ++ mboxnew) pNone
 
-subscribe :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
+subscribe :: BSStream s => IMAPConnection s -> MailboxName -> IO ()
 subscribe conn mboxname = sendCommand conn ("SUBSCRIBE " ++ mboxname) pNone
 
-unsubscribe :: BSStream s => IMAPConnection s -> Mailbox -> IO ()
+unsubscribe :: BSStream s => IMAPConnection s -> MailboxName -> IO ()
 unsubscribe conn mboxname = sendCommand conn ("UNSUBSCRIBE " ++ mboxname) pNone
 
-list :: BSStream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
+list :: BSStream s => IMAPConnection s -> IO [([Attribute], MailboxName)]
 list conn = (map (\(a, _, m) -> (a, m))) <$> listFull conn "\"\"" "*"
 
-lsub :: BSStream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
+lsub :: BSStream s => IMAPConnection s -> IO [([Attribute], MailboxName)]
 lsub conn = (map (\(a, _, m) -> (a, m))) <$> lsubFull conn "\"\"" "*"
 
 listFull :: BSStream s => IMAPConnection s -> String -> String
-         -> IO [([Attribute], String, Mailbox)]
+         -> IO [([Attribute], String, MailboxName)]
 listFull conn ref pat = sendCommand conn (unwords ["LIST", ref, pat]) pList
 
 lsubFull :: BSStream s => IMAPConnection s -> String -> String
-         -> IO [([Attribute], String, Mailbox)]
+         -> IO [([Attribute], String, MailboxName)]
 lsubFull conn ref pat = sendCommand conn (unwords ["LSUB", ref, pat]) pLsub
 
-status :: BSStream s => IMAPConnection s -> Mailbox -> [MailboxStatus]
+status :: BSStream s => IMAPConnection s -> MailboxName -> [MailboxStatus]
        -> IO [(MailboxStatus, Integer)]
 status conn mbox stats =
     let cmd = "STATUS " ++ mbox ++ " (" ++ (unwords $ map show stats) ++ ")"
     in sendCommand conn cmd pStatus
 
-append :: BSStream s => IMAPConnection s -> Mailbox -> ByteString -> IO ()
+append :: BSStream s => IMAPConnection s -> MailboxName -> ByteString -> IO ()
 append conn mbox mailData = appendFull conn mbox mailData [] Nothing
 
-appendFull :: BSStream s => IMAPConnection s -> Mailbox -> ByteString
+appendFull :: BSStream s => IMAPConnection s -> MailboxName -> ByteString
            -> [Flag] -> Maybe CalendarTime -> IO ()
 appendFull conn mbox mailData flags' time =
     do (buf, num) <- sendCommand' conn
@@ -415,7 +415,7 @@ copyFull :: (BSStream s) => IMAPConnection s -> String -> String -> IO ()
 copyFull conn uidStr mbox =
     sendCommand conn ("UID COPY " ++ uidStr ++ " " ++ mbox) pNone
 
-copy :: BSStream s => IMAPConnection s -> UID -> Mailbox -> IO ()
+copy :: BSStream s => IMAPConnection s -> UID -> MailboxName -> IO ()
 copy conn uid mbox     = copyFull conn (show uid) mbox
 
 ----------------------------------------------------------------------
