@@ -30,6 +30,7 @@ Library
     Network.HaskellNet.POP3
     Network.HaskellNet.BSStream
     Network.HaskellNet.Auth
+    Network.HaskellNet.Debug
 
   Other-modules:
     Text.Packrat.Pos
