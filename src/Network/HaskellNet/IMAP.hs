@@ -36,6 +36,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 
 import Data.Digest.MD5
+import Control.Applicative ((<$>))
 import Control.Monad
 import Control.Monad.Writer
 
@@ -58,22 +59,22 @@ data BSStream s => IMAPConnection s =
     IMAPC s (IORef MailboxInfo) (IORef Int)
 
 mailbox :: BSStream s => IMAPConnection s -> IO Mailbox
-mailbox (IMAPC _ mbox _) = fmap _mailbox $ readIORef mbox
+mailbox (IMAPC _ mbox _) = _mailbox <$> readIORef mbox
 exists, recent :: BSStream s => IMAPConnection s -> IO Integer
-exists (IMAPC _ mbox _) = fmap _exists $ readIORef mbox
-recent (IMAPC _ mbox _) = fmap _recent $ readIORef mbox
+exists (IMAPC _ mbox _) = _exists <$> readIORef mbox
+recent (IMAPC _ mbox _) = _recent <$> readIORef mbox
 
 flags, permanentFlags :: BSStream s => IMAPConnection s -> IO [Flag]
-flags (IMAPC _ mbox _) = fmap _flags $ readIORef mbox
-permanentFlags (IMAPC _ mbox _) = fmap _permanentFlags $ readIORef mbox
+flags (IMAPC _ mbox _) = _flags <$> readIORef mbox
+permanentFlags (IMAPC _ mbox _) = _permanentFlags <$> readIORef mbox
 
 isWritable, isFlagWritable :: BSStream s => IMAPConnection s -> IO Bool
-isWritable (IMAPC _ mbox _) = fmap _isWritable $ readIORef mbox
-isFlagWritable (IMAPC _ mbox _) = fmap _isFlagWritable $ readIORef mbox
+isWritable (IMAPC _ mbox _) = _isWritable <$> readIORef mbox
+isFlagWritable (IMAPC _ mbox _) = _isFlagWritable <$> readIORef mbox
 
 uidNext, uidValidity :: BSStream s => IMAPConnection s -> IO UID
-uidNext (IMAPC _ mbox _) = fmap _uidNext $ readIORef mbox
-uidValidity (IMAPC _ mbox _) = fmap _uidValidity $ readIORef mbox
+uidNext (IMAPC _ mbox _) = _uidNext <$> readIORef mbox
+uidValidity (IMAPC _ mbox _) = _uidValidity <$> readIORef mbox
 
 stream :: BSStream s => IMAPConnection s -> s
 stream (IMAPC s _ _) = s
@@ -198,19 +199,19 @@ sendCommand imapc@(IMAPC _ mbox nr) cmdstr pFunc =
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
 
 getResponse :: BSStream s => s -> IO ByteString
-getResponse s = fmap unlinesCRLF getLs
+getResponse s = unlinesCRLF <$> getLs
     where unlinesCRLF = BS.concat . concatMap (:[crlf]) 
           getLs = 
-              do l <- fmap strip $ bsGetLine s
+              do l <- strip <$> bsGetLine s
                  case () of
                    _ | isLiteral l ->  do l' <- getLiteral l (getLitLen l)
                                           ls <- getLs
                                           return (l' : ls)
-                     | isTagged l -> fmap (l:) getLs
+                     | isTagged l -> (l:) <$> getLs
                      | otherwise -> return [l]
           getLiteral l len = 
               do lit <- bsGet s len
-                 l2 <- fmap strip $ bsGetLine s
+                 l2 <- strip <$> bsGetLine s
                  let l' = BS.concat [l, crlf, lit, l2]
                  if isLiteral l2
                    then getLiteral l' (getLitLen l2)
@@ -299,8 +300,8 @@ subscribe conn mboxname = sendCommand conn ("SUBSCRIBE " ++ mboxname) pNone
 unsubscribe conn mboxname = sendCommand conn ("UNSUBSCRIBE " ++ mboxname) pNone
 
 list, lsub :: BSStream s => IMAPConnection s -> IO [([Attribute], Mailbox)]
-list conn = fmap (map (\(a, _, m) -> (a, m))) $ listFull conn "\"\"" "*"
-lsub conn = fmap (map (\(a, _, m) -> (a, m))) $ lsubFull conn "\"\"" "*"
+list conn = (map (\(a, _, m) -> (a, m))) <$> listFull conn "\"\"" "*"
+lsub conn = (map (\(a, _, m) -> (a, m))) <$> lsubFull conn "\"\"" "*"
 
 listPat, lsubPat :: BSStream s => IMAPConnection s -> String -> IO [([Attribute], String, Mailbox)]
 listPat conn pat = listFull conn "\"\"" pat
@@ -400,7 +401,7 @@ fetchByStringR conn (s, e) command =
               (maybe (toEnum (fromIntegral n)) read (lookup "UID" ps), ps)
 
 fetchCommand conn command proc =
-    fmap (map proc) $ sendCommand conn command pFetch
+    (map proc) <$> sendCommand conn command pFetch
 
 storeFull :: BSStream s => IMAPConnection s -> String -> FlagsQuery -> Bool -> IO [(UID, [Flag])]
 storeFull conn uidstr query isSilent =
