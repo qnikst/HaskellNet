@@ -233,8 +233,6 @@ sendMail sender receivers dat conn =
                          (250, _) <- sendCommand conn (DATA dat)
                          return ()
           catcher e@(PatternMatchFail _) = throwIO e
---          catcher e@(PatternMatchFail _) = fail "sendMail error"
---          catcher e = throwIO e
 
 -- | 
 -- doSMTPPort open a connection, and do an IO action with the
@@ -255,13 +253,7 @@ doSMTP host execution = doSMTPPort host 25 execution
 doSMTPStream :: BSStream s => s -> (SMTPConnection s -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
 
---sendMimeMail :: BSStream s => String -> String -> String -> LT.Text -> LT.Text -> [(String, FilePath)] -> SMTPConnection s -> IO ()
---sendMimeMail to from subject plainBody htmlBody attachments con = 
---    sendMimeMail (LT.pack to) (LT.pack from) (LT.pack subject) plainBody htmlBody (map (\x -> ((LT.pack . fst) x, (snd x))) attachments) con
-
-
 sendMimeMail :: BSStream s => String -> String -> String -> LT.Text -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection s -> IO ()
---sendMimeMail :: BSStream s => T.Text -> T.Text -> T.Text -> LT.Text -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection s -> IO ()
 sendMimeMail to from subject plainBody htmlBody attachments con = do
   myMail <-  simpleMail (T.pack to) (T.pack from) (T.pack subject) plainBody htmlBody attachments
   renderedMail <- renderMail' myMail       

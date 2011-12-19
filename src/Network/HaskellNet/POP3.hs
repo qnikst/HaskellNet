@@ -130,33 +130,6 @@ responseML st =
                          then return []
                          else (l:) <$> getRest
 
-{-
-response :: BSStream s => s -> IO (Response, ByteString)
-response st =
-    do reply <- bsGetLine st
---       reply <- fmap strip $ bsGetLine st
-       if (BS.pack "+OK") `BS.isPrefixOf` reply
-         then return (Ok, BS.drop 4 reply)
-         else return (Err, BS.drop 5 reply)
-
--- | parse mutiline of response
-
---    do reply <- fmap strip $ bsGetLine st
-responseML :: BSStream s => s -> IO (Response, ByteString)
-responseML st =
-    do reply <- bsGetLine st
-       if (BS.pack "+OK") `BS.isPrefixOf` reply
-         then do rest <- getRest
-                 return (Ok, BS.unlines (BS.drop 4 reply : rest))
-         else return (Err, BS.drop 5 reply)
---    where getRest = do l <- fmap strip $ bsGetLine st
---                       if l == BS.singleton '.'
-    where getRest = do l <- bsGetLine st
-                       if BS.null l
-                         then return []
-                         else fmap (l:) getRest
--}
-
 -- | sendCommand sends a pop3 command via a pop3 connection.  This
 -- action is too generic. Use more specific actions
 sendCommand :: BSStream s => POP3Connection s -> Command -> IO (Response, ByteString)
