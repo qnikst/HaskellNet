@@ -26,10 +26,10 @@ Library
   GHC-Options: -Wall -fno-warn-unused-do-bind
 
   Exposed-modules:
-    Text.IMAPParsers
     Network.HaskellNet.IMAP
     Network.HaskellNet.IMAP.Connection
     Network.HaskellNet.IMAP.Types
+    Network.HaskellNet.IMAP.Parsers
     Network.HaskellNet.SMTP
     Network.HaskellNet.POP3
     Network.HaskellNet.POP3.Connection

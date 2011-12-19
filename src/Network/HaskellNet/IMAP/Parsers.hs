@@ -1,5 +1,5 @@
 -- | Parsers for IMAP server responses
-module Text.IMAPParsers where
+module Network.HaskellNet.IMAP.Parsers where
 
 import Text.Packrat.Parse hiding (space, spaces)
 import Text.Packrat.Pos

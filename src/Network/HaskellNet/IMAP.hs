@@ -25,6 +25,7 @@ import Network
 import Network.HaskellNet.BSStream
 import Network.HaskellNet.IMAP.Connection
 import Network.HaskellNet.IMAP.Types
+import Network.HaskellNet.IMAP.Parsers
 import qualified Network.HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
@@ -40,7 +41,6 @@ import Data.Maybe
 import Data.List hiding (delete)
 import Data.Char
 
-import Text.IMAPParsers
 import Text.Packrat.Parse (Result)
 
 -- suffixed by `s'
