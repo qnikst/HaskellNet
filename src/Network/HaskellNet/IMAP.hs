@@ -180,7 +180,7 @@ getResponse s = unlinesCRLF <$> getLs
           getLitLen = read . BS.unpack . snd . BS.spanEnd isDigit . BS.init
           isTagged l = BS.head l == '*' && BS.head (BS.tail l) == ' '
 
-mboxUpdate :: IMAPConnection s -> MboxUpdate -> IO ()
+mboxUpdate :: (BSStream s) => IMAPConnection s -> MboxUpdate -> IO ()
 mboxUpdate conn (MboxUpdate exists' recent') = do
   when (isJust exists') $
        modifyMailboxInfo conn $ \mbox -> mbox { _exists = fromJust exists' }
