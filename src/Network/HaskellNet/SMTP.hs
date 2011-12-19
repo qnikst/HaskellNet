@@ -138,7 +138,7 @@ connectStream st =
               do bsClose st
                  fail "cannot connect to the server"
        senderHost <- getHostName
-       (code, msg) <- sendCommand (SMTPC st []) (EHLO senderHost) 
+       (code, msg) <- sendCommand (SMTPC st []) (EHLO senderHost)
        unless (code == 250) $
               do (code, msg) <- sendCommand (SMTPC st []) (HELO senderHost)
                  unless (code == 250) $
