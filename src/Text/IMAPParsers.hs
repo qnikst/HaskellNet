@@ -5,100 +5,11 @@ import Text.Packrat.Parse hiding (space, spaces)
 import Text.Packrat.Pos
 
 import Data.Maybe
-import Data.Word
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 
-type Mailbox = String
-type UID = Word64
-type Charset = String
-
-
-data MailboxInfo = MboxInfo { _mailbox :: Mailbox
-                            , _exists :: Integer
-                            , _recent :: Integer
-                            , _flags :: [Flag]
-                            , _permanentFlags :: [Flag]
-                            , _isWritable :: Bool
-                            , _isFlagWritable :: Bool
-                            , _uidNext :: UID
-                            , _uidValidity :: UID
-                            }
-                 deriving (Show, Eq)
-
-
-data Flag = Seen
-          | Answered
-          | Flagged
-          | Deleted
-          | Draft
-          | Recent
-          | Keyword String
-            deriving Eq
-
-instance Show Flag where
-    showsPrec d f = showParen (d > app_prec) $ showString $ showFlag f
-        where app_prec = 10
-              showFlag Seen        = "\\Seen"
-              showFlag Answered    = "\\Answered"
-              showFlag Flagged     = "\\Flagged"
-              showFlag Deleted     = "\\Deleted"
-              showFlag Draft       = "\\Draft"
-              showFlag Recent      = "\\Recent"
-              showFlag (Keyword s) = "\\" ++ s
-
-data Attribute = Noinferiors
-               | Noselect
-               | Marked
-               | Unmarked
-               | OtherAttr String
-                 deriving (Show, Eq)
-
-data MboxUpdate = MboxUpdate { exists :: Maybe Integer
-                             , recent :: Maybe Integer }
-                deriving (Show, Eq)
-
-data StatusCode = ALERT
-                | BADCHARSET [Charset]
-                | CAPABILITY_sc [String]
-                | PARSE
-                | PERMANENTFLAGS [Flag]
-                | READ_ONLY
-                | READ_WRITE
-                | TRYCREATE
-                | UIDNEXT_sc UID
-                | UIDVALIDITY_sc UID
-                | UNSEEN_sc Integer
-                  deriving (Eq, Show)
-
-data ServerResponse = OK (Maybe StatusCode) String
-                    | NO (Maybe StatusCode) String
-                    | BAD (Maybe StatusCode) String
-                    | PREAUTH (Maybe StatusCode) String
-                      deriving (Eq, Show)
-
-
--- | the query data type for the status command
-data MailboxStatus = MESSAGES     -- ^ the number of messages in the mailbox
-                   | RECENT       -- ^ the number of messages with the \Recent flag set
-                   | UIDNEXT      -- ^ the next unique identifier value of the mailbox
-                   | UIDVALIDITY  -- ^ the unique identifier validity value of the mailbox
-                     deriving (Show, Read, Eq)
-
-
-
-
-data RespDerivs =
-    RespDerivs { dvFlags  :: Result RespDerivs [Flag]
-               , advTag   :: Result RespDerivs String
-               , advChar  :: Result RespDerivs Char
-               , advPos   :: Pos
-               }
-
-instance Derivs RespDerivs where
-    dvChar = advChar
-    dvPos  = advPos
+import Network.HaskellNet.IMAP.Types
 
 eval :: (RespDerivs -> Result RespDerivs r) -> String -> ByteString -> r
 eval pMain tag s = case pMain (parse tag (Pos tag 1 1) s) of

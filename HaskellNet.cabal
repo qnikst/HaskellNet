@@ -28,6 +28,8 @@ Library
   Exposed-modules:
     Text.IMAPParsers
     Network.HaskellNet.IMAP
+    Network.HaskellNet.IMAP.Connection
+    Network.HaskellNet.IMAP.Types
     Network.HaskellNet.SMTP
     Network.HaskellNet.POP3
     Network.HaskellNet.BSStream

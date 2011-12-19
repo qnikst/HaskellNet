@@ -1,11 +1,5 @@
 module Network.HaskellNet.IMAP
-    ( -- * connection type and corresponding actions
-      IMAPConnection
-    , mailbox, exists, recent
-    , flags, permanentFlags, isWritable, isFlagWritable
-    , uidNext, uidValidity
-    , stream
-    , connectIMAP, connectIMAPPort, connectStream
+    ( connectIMAP, connectIMAPPort, connectStream
       -- * IMAP commands
       -- ** any state commands
     , noop, capability, logout
@@ -29,7 +23,8 @@ where
 
 import Network
 import Network.HaskellNet.BSStream
-import Network.HaskellNet.Auth hiding (auth, login)
+import Network.HaskellNet.IMAP.Connection
+import Network.HaskellNet.IMAP.Types
 import qualified Network.HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
@@ -41,49 +36,12 @@ import Control.Monad
 import System.IO
 import System.Time
 
-import Data.IORef
 import Data.Maybe
 import Data.List hiding (delete)
 import Data.Char
 
-import Text.IMAPParsers hiding (exists, recent)
+import Text.IMAPParsers
 import Text.Packrat.Parse (Result)
-
-
-----------------------------------------------------------------------
--- connection type and corresponding functions
-data BSStream s => IMAPConnection s =
-    IMAPC s (IORef MailboxInfo) (IORef Int)
-
-mailbox :: BSStream s => IMAPConnection s -> IO Mailbox
-mailbox (IMAPC _ mbox _) = _mailbox <$> readIORef mbox
-
-exists :: BSStream s => IMAPConnection s -> IO Integer
-exists (IMAPC _ mbox _) = _exists <$> readIORef mbox
-
-recent :: BSStream s => IMAPConnection s -> IO Integer
-recent (IMAPC _ mbox _) = _recent <$> readIORef mbox
-
-flags :: BSStream s => IMAPConnection s -> IO [Flag]
-flags (IMAPC _ mbox _) = _flags <$> readIORef mbox
-
-permanentFlags :: BSStream s => IMAPConnection s -> IO [Flag]
-permanentFlags (IMAPC _ mbox _) = _permanentFlags <$> readIORef mbox
-
-isWritable :: BSStream s => IMAPConnection s -> IO Bool
-isWritable (IMAPC _ mbox _) = _isWritable <$> readIORef mbox
-
-isFlagWritable :: BSStream s => IMAPConnection s -> IO Bool
-isFlagWritable (IMAPC _ mbox _) = _isFlagWritable <$> readIORef mbox
-
-uidNext :: BSStream s => IMAPConnection s -> IO UID
-uidNext (IMAPC _ mbox _) = _uidNext <$> readIORef mbox
-
-uidValidity :: BSStream s => IMAPConnection s -> IO UID
-uidValidity (IMAPC _ mbox _) = _uidValidity <$> readIORef mbox
-
-stream :: BSStream s => IMAPConnection s -> s
-stream (IMAPC s _ _) = s
 
 -- suffixed by `s'
 data SearchQuery = ALLs
@@ -167,21 +125,15 @@ connectStream s =
     do msg <- bsGetLine s
        unless (and $ BS.zipWith (==) msg (BS.pack "* OK")) $
               fail "cannot connect to the server"
-       mbox <- newIORef emptyMboxInfo
-       c <- newIORef 0
-       return $ IMAPC s mbox c
-
-emptyMboxInfo :: MailboxInfo
-emptyMboxInfo = MboxInfo "" 0 0 [] [] False False 0 0
+       newConnection s
 
 ----------------------------------------------------------------------
 -- normal send commands
-sendCommand' :: BSStream s => IMAPConnection s -> String -> IO ByteString
-sendCommand' (IMAPC s _ nr) cmdstr =
-    do num <- readIORef nr
-       bsPutCrLf s $ BS.pack $ show6 num ++ " " ++ cmdstr
-       modifyIORef nr (+1)
-       getResponse s
+sendCommand' :: (BSStream s) => IMAPConnection s -> String -> IO (ByteString, Int)
+sendCommand' c cmdstr = do
+  (_, num) <- withNextCommandNum c $ \num -> bsPutCrLf c $ BS.pack $ show6 num ++ " " ++ cmdstr
+  resp <- getResponse c
+  return (resp, num)
 
 show6 :: (Ord a, Num a) => a -> String
 show6 n | n > 100000 = show n
@@ -194,12 +146,11 @@ show6 n | n > 100000 = show n
 sendCommand :: BSStream s => IMAPConnection s -> String
             -> (RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, v))
             -> IO v
-sendCommand imapc@(IMAPC _ mbox nr) cmdstr pFunc =
-    do num <- readIORef nr
-       buf <- sendCommand' imapc cmdstr
+sendCommand imapc cmdstr pFunc =
+    do (buf, num) <- sendCommand' imapc cmdstr
        let (resp, mboxUp, value) = eval pFunc (show6 num) buf
        case resp of
-         OK _ _        -> do mboxUpdate mbox $ mboxUp
+         OK _ _        -> do mboxUpdate imapc mboxUp
                              return value
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
@@ -229,68 +180,65 @@ getResponse s = unlinesCRLF <$> getLs
           getLitLen = read . BS.unpack . snd . BS.spanEnd isDigit . BS.init
           isTagged l = BS.head l == '*' && BS.head (BS.tail l) == ' '
 
-mboxUpdate :: IORef MailboxInfo -> MboxUpdate -> IO ()
-mboxUpdate mbox (MboxUpdate exists' recent') =
-    do when (isJust exists') $ do mb <- readIORef mbox
-                                  writeIORef mbox (mb { _exists = e })
-       when (isJust recent') $ do mb <- readIORef mbox
-                                  writeIORef mbox (mb { _recent = r })
-    where e = fromJust exists'
-          r = fromJust recent'
+mboxUpdate :: IMAPConnection s -> MboxUpdate -> IO ()
+mboxUpdate conn (MboxUpdate exists' recent') = do
+  when (isJust exists') $
+       modifyMailboxInfo conn $ \mbox -> mbox { _exists = fromJust exists' }
+
+  when (isJust recent') $
+       modifyMailboxInfo conn $ \mbox -> mbox { _recent = fromJust recent' }
 
 ----------------------------------------------------------------------
 -- IMAP commands
 --
 
 noop :: BSStream s => IMAPConnection s -> IO ()
-noop conn@(IMAPC _ _ _) = sendCommand conn "NOOP" pNone
+noop conn = sendCommand conn "NOOP" pNone
 
 capability :: BSStream s => IMAPConnection s -> IO [String]
 capability conn = sendCommand conn "CAPABILITY" pCapability
 
-logout :: BSStream s => IMAPConnection s -> IO ()
-logout (IMAPC s _ _) = do bsPutCrLf s $ BS.pack "a0001 LOGOUT"
-                          bsClose s
+logout :: (BSStream s) => IMAPConnection s -> IO ()
+logout c = do bsPutCrLf c $ BS.pack "a0001 LOGOUT"
+              bsClose c
 
-login :: BSStream s => IMAPConnection s -> UserName -> Password -> IO ()
+login :: BSStream s => IMAPConnection s -> A.UserName -> A.Password -> IO ()
 login conn username password = sendCommand conn ("LOGIN " ++ username ++ " " ++ password)
                                pNone
 
 _select :: (BSStream s) => String -> IMAPConnection s -> String -> IO ()
-_select cmd conn@(IMAPC _ mbox _) mboxName =
+_select cmd conn mboxName =
     do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
-       writeIORef mbox (mbox' { _mailbox = mboxName })
+       setMailboxInfo conn $ mbox' { _mailbox = mboxName }
 
-authenticate :: BSStream s => IMAPConnection s -> AuthType
-             -> UserName -> Password -> IO ()
-authenticate conn@(IMAPC s mbox nr) LOGIN username password =
-    do num <- readIORef nr
-       sendCommand' conn "AUTHENTICATE LOGIN"
-       bsPutCrLf s $ BS.pack userB64
-       bsGetLine s
-       bsPutCrLf s $ BS.pack passB64
-       buf <- getResponse s
+authenticate :: (BSStream s) => IMAPConnection s -> A.AuthType
+             -> A.UserName -> A.Password -> IO ()
+authenticate conn A.LOGIN username password =
+    do (_, num) <- sendCommand' conn "AUTHENTICATE LOGIN"
+       bsPutCrLf conn $ BS.pack userB64
+       bsGetLine conn
+       bsPutCrLf conn $ BS.pack passB64
+       buf <- getResponse conn
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
-         OK _ _        -> do mboxUpdate mbox $ mboxUp
+         OK _ _        -> do mboxUpdate conn $ mboxUp
                              return value
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
     where (userB64, passB64) = A.login username password
-authenticate conn@(IMAPC s mbox nr) at username password =
-    do num <- readIORef nr
-       c <- sendCommand' conn $ "AUTHENTICATE " ++ show at
+authenticate conn at username password =
+    do (c, num) <- sendCommand' conn $ "AUTHENTICATE " ++ show at
        let challenge =
                if BS.take 2 c == BS.pack "+ "
-               then b64Decode $ BS.unpack $ head $
+               then A.b64Decode $ BS.unpack $ head $
                     dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
                else ""
-       bsPutCrLf s $ BS.pack $ A.auth at challenge username password
-       buf <- getResponse s
+       bsPutCrLf conn $ BS.pack $ A.auth at challenge username password
+       buf <- getResponse conn
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
-         OK _ _        -> do mboxUpdate mbox $ mboxUp
+         OK _ _        -> do mboxUpdate conn $ mboxUp
                              return value
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
@@ -343,18 +291,17 @@ append conn mbox mailData = appendFull conn mbox mailData [] Nothing
 
 appendFull :: BSStream s => IMAPConnection s -> Mailbox -> ByteString
            -> [Flag] -> Maybe CalendarTime -> IO ()
-appendFull conn@(IMAPC s mbInfo nr) mbox mailData flags' time =
-    do num <- readIORef nr
-       buf <- sendCommand' conn
+appendFull conn mbox mailData flags' time =
+    do (buf, num) <- sendCommand' conn
                 (unwords ["APPEND", mbox
                          , fstr, tstr,  "{" ++ show len ++ "}"])
        unless (BS.null buf || (BS.head buf /= '+')) $
               fail "illegal server response"
-       mapM_ (bsPutCrLf s) mailLines
-       buf2 <- getResponse s
+       mapM_ (bsPutCrLf conn) mailLines
+       buf2 <- getResponse conn
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf2
        case resp of
-         OK _ _ -> mboxUpdate mbInfo mboxUp
+         OK _ _ -> mboxUpdate conn mboxUp
          NO _ msg -> fail ("NO: "++msg)
          BAD _ msg -> fail ("BAD: "++msg)
          PREAUTH _ msg -> fail ("PREAUTH: "++msg)
@@ -367,9 +314,9 @@ check :: BSStream s => IMAPConnection s -> IO ()
 check conn = sendCommand conn "CHECK" pNone
 
 close :: BSStream s => IMAPConnection s -> IO ()
-close conn@(IMAPC _ mbox _) =
+close conn =
     do sendCommand conn "CLOSE" pNone
-       writeIORef mbox emptyMboxInfo
+       setMailboxInfo conn emptyMboxInfo
 
 expunge :: BSStream s => IMAPConnection s -> IO [Integer]
 expunge conn = sendCommand conn "EXPUNGE" pExpunge
