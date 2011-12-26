@@ -364,16 +364,3 @@ catLefts :: [Either a b] -> [a]
 catLefts []           = []
 catLefts (Left r:tl) = r : catLefts tl
 catLefts (_:tl)       = catLefts tl
-
-isLeft, isRight :: Either a b -> Bool
-isLeft (Left _) = True
-isLeft _        = False
-isRight (Right _) = True
-isRight _         = False
-
-getLeft :: Either a b -> a
-getLeft (Left l) = l
-getLeft _        = error "not left"
-getRight :: Either a b -> b
-getRight (Right r) = r
-getRight _         = error "not right"
