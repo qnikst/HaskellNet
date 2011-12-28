@@ -1,0 +1,41 @@
+
+0.2.5 -> 0.3
+------------
+
+Package changes:
+ * Constrained dependency on mime-mail to avoid API-breaking changes
+   in 0.4
+ * Removed unused dependencies on parsec, time, containers, and
+   old-locale
+ * Removed unused modules:
+   - Data.Record
+   - Text.URI
+   - Text.MIME
+   - Atom test module
+   - Moved stream debugging module from test/ to
+     Network.HaskellNet.Debug
+ * Moved modules into src/
+
+Other changes:
+ * Got rid of stale module portability / maintainer / stability
+   annotations in source; moved copyright annotation into Cabal file
+ * Removed some stale compiler pragmas
+ * Resolved compiler warnings in all modules
+ * Moved to using <$> more
+ * Removed a lot of stale commented-out code
+ * Shortened a lot of long lines
+
+API changes:
+ * Split up IMAP module into
+   Network.HaskellNet.IMAP (core functionality)
+   Network.HaskellNet.Types (data types)
+   Network.HaskellNet.Connection (IMAP connection functions)
+ * Moved Text.IMAPParsers to Network.HaskellNet.Parsers
+ * Renamed IMAP 'Mailbox' type to 'MailboxName'
+ * Split up POP3 module into
+   Network.HaskellNet.POP3 (core functionality)
+   Network.HaskellNet.Types (data types)
+   Network.HaskellNet.Connection (POP connection functions)
+ * IMAP.Parsers:
+   - removed unused Either handling functions
+   - constraind exports (originally exported everything)

@@ -16,6 +16,7 @@ Cabal-version:  >=1.6
 Build-type:	Simple
 
 Extra-Source-Files:
+  CHANGELOG
   README.md
   example/*.hs
 
