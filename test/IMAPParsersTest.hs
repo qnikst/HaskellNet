@@ -1,6 +1,7 @@
 module Main (main) where
 
-import Text.IMAPParsers
+import Network.HaskellNet.IMAP.Parsers
+import Network.HaskellNet.IMAP.Types
 
 import Test.HUnit
 
