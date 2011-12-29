@@ -247,3 +247,8 @@ sendMimeMail to from subject plainBody htmlBody attachments con = do
 lazyToStrict :: B.ByteString -> S.ByteString
 lazyToStrict = S.concat . B.toChunks
 
+crlf :: BS.ByteString
+crlf = BS.pack "\r\n"
+
+bsPutCrLf :: BSStream -> ByteString -> IO ()
+bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h

@@ -2,7 +2,6 @@
 -- by the e-mail protocol implementations.
 module Network.HaskellNet.BSStream
     ( BSStream(..)
-    , bsPutCrLf
     , handleToStream
     )
 where
@@ -29,14 +28,6 @@ data BSStream =
              , bsIsOpen :: IO Bool
              -- ^Is the stream open?
              }
-
-lf, crlf :: BS.ByteString
-lf = BS.singleton '\n'
-crlf = BS.pack "\r\n"
-
--- |Write a byte string, write a CRLF sequence, then flush.
-bsPutCrLf :: BSStream -> ByteString -> IO ()
-bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
 
 -- |Build a byte string stream which operates on a 'Handle'.
 handleToStream :: Handle -> BSStream

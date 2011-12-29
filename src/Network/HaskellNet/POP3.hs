@@ -238,3 +238,9 @@ doPop3 host execution = doPop3Port host 110 execution
 
 doPop3Stream :: BSStream -> (POP3Connection -> IO b) -> IO b
 doPop3Stream conn execution = bracket (connectStream conn) closePop3 execution
+
+crlf :: BS.ByteString
+crlf = BS.pack "\r\n"
+
+bsPutCrLf :: BSStream -> ByteString -> IO ()
+bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h

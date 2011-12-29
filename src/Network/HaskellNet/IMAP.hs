@@ -444,3 +444,9 @@ dateToStringIMAP date = concat $ intersperse "-" [show2 $ ctDay date
 
 strip :: ByteString -> ByteString
 strip = fst . BS.spanEnd isSpace . BS.dropWhile isSpace
+
+crlf :: BS.ByteString
+crlf = BS.pack "\r\n"
+
+bsPutCrLf :: BSStream -> ByteString -> IO ()
+bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
