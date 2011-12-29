@@ -1,81 +1,44 @@
 module Network.HaskellNet.Debug
-    ( connectD
-    , connectDPort
-    , DebugStream
-    , withDebug
+    ( debugStream
     )
     where
 
-import Network
 import Network.HaskellNet.BSStream
 
 import qualified Data.ByteString.Char8 as BS
 
 import System.IO
 
-newtype (BSStream s) => DebugStream s = DS s
+debugStream :: BSStream -> BSStream
+debugStream inner =
+    inner { bsGetLine = debugBsGetLine inner
+          , bsGet = debugBsGet inner
+          , bsPut = debugBsPut inner
+          }
 
-withDebug :: BSStream s => s -> DebugStream s
-withDebug = DS
+debugBsGetLine :: BSStream -> IO BS.ByteString
+debugBsGetLine s = do
+  hPutStr stderr "reading with bsGetLine..."
+  hFlush stderr
+  l <- bsGetLine s
+  BS.hPutStrLn stderr l
+  return l
 
-connectD :: HostName -> PortNumber -> IO (DebugStream Handle)
-connectD host port = connectDPort host (PortNumber port)
+debugBsGet :: BSStream -> Int -> IO BS.ByteString
+debugBsGet s len = do
+  hPutStr stderr $ "reading with bsGet "++show len++"..."
+  hFlush stderr
+  chunk <- bsGet s len
+  BS.hPutStrLn stderr chunk
+  return chunk
 
-connectDPort :: HostName -> PortID -> IO (DebugStream Handle)
-connectDPort host port =
-    do h <- connectTo host port
-       hPutStrLn stderr "connected"
-       return $ DS h
-
-
-instance (BSStream s) => BSStream (DebugStream s) where
-    bsGetLine (DS h) =
-        do hPutStr stderr "reading with bsGetLine..."
-           hFlush stderr
-           l <- bsGetLine h
-           BS.hPutStrLn stderr l
-           return l
-    bsGet (DS h) len =
-        do hPutStr stderr $ "reading with bsGet "++show len++"..."
-           hFlush stderr
-           chunk <- bsGet h len
-           BS.hPutStrLn stderr chunk
-           return chunk
-    bsPut (DS h) s =
-        do hPutStr stderr "putting with bsPut ("
-           BS.hPutStrLn stderr s
-           hPutStr stderr (")...")
-           hFlush stderr
-           bsPut h s
-           bsFlush h
-           hPutStrLn stderr "done"
-           return ()
-    bsPutStrLn (DS h) s =
-        do hPutStr stderr "putting with bsPutStrLn("
-           BS.hPutStrLn stderr s
-           hPutStr stderr (")...")
-           hFlush stderr
-           bsPutStrLn h s
-           bsFlush h
-           hPutStrLn stderr "done"
-           return ()
-    bsPutCrLf (DS h) s =
-        do hPutStr stderr "putting with bsPutCrLf("
-           BS.hPutStrLn stderr s
-           hPutStr stderr (")...")
-           hFlush stderr
-           bsPutCrLf h s
-           bsFlush h
-           hPutStrLn stderr "done"
-           return ()
-    bsPutNoFlush (DS h) s =
-        do hPutStr stderr "putting with bsPutNoFlush ("
-           BS.hPutStrLn stderr s
-           hPutStr stderr (")...")
-           hFlush stderr
-           bsPut h s
-           hPutStrLn stderr "done"
-           return ()
-    bsFlush (DS h) = bsFlush h
-    bsClose (DS h) = bsClose h
-    bsIsOpen (DS h) = bsIsOpen h
+debugBsPut :: BSStream -> BS.ByteString -> IO ()
+debugBsPut s str = do
+  hPutStr stderr "putting with bsPut ("
+  BS.hPutStrLn stderr str
+  hPutStr stderr (")...")
+  hFlush stderr
+  bsPut s str
+  bsFlush s
+  hPutStrLn stderr "done"
+  return ()

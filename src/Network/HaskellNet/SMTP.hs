@@ -26,6 +26,7 @@ import qualified Data.ByteString.Char8 as BS
 import Network.BSD (getHostName)
 import Network
 
+import Control.Applicative ((<$>))
 import Control.Exception
 import Control.Monad (unless)
 
@@ -44,7 +45,7 @@ import qualified Data.Text as T
 
 import Prelude hiding (catch)
 
-data (BSStream s) => SMTPConnection s = SMTPC !s ![ByteString]
+data SMTPConnection = SMTPC !BSStream ![ByteString]
 
 data Command = HELO String
              | EHLO String
@@ -89,16 +90,17 @@ data Response = Ok
 -- | connecting SMTP server with the specified name and port number.
 connectSMTPPort :: String     -- ^ name of the server
                 -> PortNumber -- ^ port number
-                -> IO (SMTPConnection Handle)
+                -> IO SMTPConnection
 connectSMTPPort hostname port =
-    connectTo hostname (PortNumber port) >>= connectStream
+    (handleToStream <$> connectTo hostname (PortNumber port))
+    >>= connectStream
 
 -- | connecting SMTP server with the specified name and port 25.
 connectSMTP :: String     -- ^ name of the server
-            -> IO (SMTPConnection Handle)
+            -> IO SMTPConnection
 connectSMTP = flip connectSMTPPort 25
 
-tryCommand :: BSStream s => s -> Command -> Int -> ReplyCode
+tryCommand :: BSStream -> Command -> Int -> ReplyCode
            -> IO ByteString
 tryCommand st cmd tries expectedReply | tries <= 0 = do
   bsClose st
@@ -111,7 +113,7 @@ tryCommand st cmd tries expectedReply = do
       tryCommand st cmd (tries - 1) expectedReply
 
 -- | create SMTPConnection from already connected Stream
-connectStream :: BSStream s => s -> IO (SMTPConnection s)
+connectStream :: BSStream -> IO SMTPConnection
 connectStream st =
     do (code1, _) <- parseResponse st
        unless (code1 == 220) $
@@ -121,7 +123,7 @@ connectStream st =
        msg <- tryCommand st (EHLO senderHost) 3 250
        return (SMTPC st (tail $ BS.lines msg))
 
-parseResponse :: BSStream s => s -> IO (ReplyCode, ByteString)
+parseResponse :: BSStream -> IO (ReplyCode, ByteString)
 parseResponse st =
     do (code, bdy) <- readLines
        return (read $ BS.unpack code, BS.unlines bdy)
@@ -135,8 +137,7 @@ parseResponse st =
 
 
 -- | send a method to a server
-sendCommand :: BSStream s => SMTPConnection s -> Command
-            -> IO (ReplyCode, ByteString)
+sendCommand :: SMTPConnection -> Command -> IO (ReplyCode, ByteString)
 sendCommand (SMTPC conn _) (DATA dat) =
     do bsPutCrLf conn $ BS.pack "DATA"
        (code, _) <- parseResponse conn
@@ -183,7 +184,7 @@ sendCommand (SMTPC conn _) meth =
 
 -- | close the connection.  This function send the QUIT method, so you
 -- do not have to QUIT method explicitly.
-closeSMTP :: BSStream s => SMTPConnection s -> IO ()
+closeSMTP :: SMTPConnection -> IO ()
 closeSMTP (SMTPC conn _) = bsClose conn
 
 {-
@@ -201,11 +202,10 @@ closeSMTP c@(SMTPC conn _) =
 
 -- | sending a mail to a server. This is achieved by sendMessage.  If
 -- something is wrong, it raises an IOexception.
-sendMail :: BSStream s =>
-            String     -- ^ sender mail
+sendMail :: String     -- ^ sender mail
          -> [String]   -- ^ receivers
          -> ByteString -- ^ data
-         -> SMTPConnection s
+         -> SMTPConnection
          -> IO ()
 sendMail sender receivers dat conn =
     catcher `handle` mainProc
@@ -219,22 +219,22 @@ sendMail sender receivers dat conn =
 
 -- | doSMTPPort open a connection, and do an IO action with the
 -- connection, and then close it.
-doSMTPPort :: String -> PortNumber -> (SMTPConnection Handle -> IO a) -> IO a
+doSMTPPort :: String -> PortNumber -> (SMTPConnection -> IO a) -> IO a
 doSMTPPort host port execution =
     bracket (connectSMTPPort host port) closeSMTP execution
 
 -- | doSMTP is similar to doSMTPPort, except that it does not require
 -- port number but connects to the server with port 25.
-doSMTP :: String -> (SMTPConnection Handle -> IO a) -> IO a
+doSMTP :: String -> (SMTPConnection -> IO a) -> IO a
 doSMTP host execution = doSMTPPort host 25 execution
 
 -- | doSMTPStream is similar to doSMTPPort, except that its argument
 -- is a Stream data instead of hostname and port number.
-doSMTPStream :: BSStream s => s -> (SMTPConnection s -> IO a) -> IO a
+doSMTPStream :: BSStream -> (SMTPConnection -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
 
-sendMimeMail :: BSStream s => String -> String -> String -> LT.Text
-             -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection s -> IO ()
+sendMimeMail :: String -> String -> String -> LT.Text
+             -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection -> IO ()
 sendMimeMail to from subject plainBody htmlBody attachments con = do
   myMail <- simpleMail (T.pack to) (T.pack from) (T.pack subject)
             plainBody htmlBody attachments
