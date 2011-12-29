@@ -1,3 +1,5 @@
+-- |This module provides a byte string stream interface which is used
+-- by the e-mail protocol implementations.
 module Network.HaskellNet.BSStream
     ( BSStream(..)
     , bsPutCrLf
@@ -11,28 +13,43 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 import System.IO
 
+-- |A byte string stream.
 data BSStream =
     BSStream { bsGetLine :: IO ByteString
+             -- ^Read a line from the stream.  Should return the line
+             -- which was read, including the newline.
              , bsGet :: Int -> IO ByteString
+             -- ^Read the specified number of bytes from the stream.
+             -- Should block until the requested bytes can be read.
              , bsPut :: ByteString -> IO ()
+             -- ^Write the specified byte string to the stream.
+             -- Should flush the stream after writing.
              , bsFlush :: IO ()
+             -- ^Flush the stream.
              , bsClose :: IO ()
+             -- ^Close the stream.
              , bsIsOpen :: IO Bool
+             -- ^Is the stream open?
              }
 
 lf, crlf :: BS.ByteString
 lf = BS.singleton '\n'
 crlf = BS.pack "\r\n"
 
+-- |Write a byte string, write a CRLF sequence, then flush.
 bsPutCrLf :: BSStream -> ByteString -> IO ()
 bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
 
+-- |Write a list of byte strings to a stream in the order given, then
+-- flush.
 bsPuts :: BSStream -> [ByteString] -> IO ()
 bsPuts h strs = mapM_ (bsPut h) strs >> bsFlush h
 
+-- |Write a byte string, write a newline, then flush.
 bsPutStrLn :: BSStream -> ByteString -> IO ()
 bsPutStrLn h s = bsPut h s >> bsPut h lf >> bsFlush h
 
+-- |Build a byte string stream which operates on a 'Handle'.
 handleToStream :: Handle -> BSStream
 handleToStream h =
     BSStream { bsGetLine = BS.hGetLine h
