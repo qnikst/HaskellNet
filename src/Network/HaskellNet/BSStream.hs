@@ -3,8 +3,6 @@
 module Network.HaskellNet.BSStream
     ( BSStream(..)
     , bsPutCrLf
-    , bsPuts
-    , bsPutStrLn
     , handleToStream
     )
 where
@@ -39,15 +37,6 @@ crlf = BS.pack "\r\n"
 -- |Write a byte string, write a CRLF sequence, then flush.
 bsPutCrLf :: BSStream -> ByteString -> IO ()
 bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
-
--- |Write a list of byte strings to a stream in the order given, then
--- flush.
-bsPuts :: BSStream -> [ByteString] -> IO ()
-bsPuts h strs = mapM_ (bsPut h) strs >> bsFlush h
-
--- |Write a byte string, write a newline, then flush.
-bsPutStrLn :: BSStream -> ByteString -> IO ()
-bsPutStrLn h s = bsPut h s >> bsPut h lf >> bsFlush h
 
 -- |Build a byte string stream which operates on a 'Handle'.
 handleToStream :: Handle -> BSStream
