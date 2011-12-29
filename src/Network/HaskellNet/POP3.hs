@@ -30,7 +30,6 @@ module Network.HaskellNet.POP3
 
 import Network.HaskellNet.BSStream
 import Network
-import Network.HaskellNet.Auth hiding (auth, login)
 import qualified Network.HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
@@ -119,7 +118,7 @@ sendCommand conn (RETR msg) =
 sendCommand conn (TOP msg n) =
     bsPutCrLf (stream conn) (BS.pack $ "TOP " ++ show msg ++ " " ++ show n) >>
     responseML conn
-sendCommand conn (AUTH LOGIN username password) =
+sendCommand conn (AUTH A.LOGIN username password) =
     do bsPutCrLf (stream conn) $ BS.pack "AUTH LOGIN"
        bsGetLine (stream conn)
        bsPutCrLf (stream conn) $ BS.pack userB64
@@ -132,7 +131,7 @@ sendCommand conn (AUTH at username password) =
        c <- bsGetLine (stream conn)
        let challenge =
                if BS.take 2 c == BS.pack "+ "
-               then b64Decode $ BS.unpack $ head $
+               then A.b64Decode $ BS.unpack $ head $
                     dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
                else ""
        bsPutCrLf (stream conn) $ BS.pack $ A.auth at challenge username password
@@ -163,10 +162,10 @@ pass :: POP3Connection -> String -> IO ()
 pass conn pwd = do (resp, _) <- sendCommand conn (PASS pwd)
                    when (resp == Err) $ fail "cannot send password"
 
-userPass :: POP3Connection -> UserName -> Password -> IO ()
+userPass :: POP3Connection -> A.UserName -> A.Password -> IO ()
 userPass conn name pwd = user conn name >> pass conn pwd
 
-auth :: POP3Connection -> AuthType -> UserName -> Password
+auth :: POP3Connection -> A.AuthType -> A.UserName -> A.Password
      -> IO ()
 auth conn at username password =
     do (resp, msg) <- sendCommand conn (AUTH at username password)
