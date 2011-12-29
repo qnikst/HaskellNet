@@ -1,5 +1,6 @@
--- |This module provides a byte string stream interface which is used
--- by the e-mail protocol implementations.
+-- |This module provides a byte string \"stream\" interface.  This
+-- interface provides some common operations on a value which
+-- supports reading and writing byte strings.
 module Network.HaskellNet.BSStream
     ( BSStream(..)
     , handleToStream
