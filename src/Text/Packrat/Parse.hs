@@ -5,8 +5,8 @@ module Text.Packrat.Parse where
 
 import Prelude hiding (exp, rem)
 
-import Char
-import List
+import Data.Char
+import Data.List
 
 import Text.Packrat.Pos
 
