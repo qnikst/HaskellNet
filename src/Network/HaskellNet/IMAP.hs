@@ -136,7 +136,7 @@ sendCommand' c cmdstr = do
   resp <- getResponse (stream c)
   return (resp, num)
 
-show6 :: (Ord a, Num a) => a -> String
+show6 :: (Ord a, Num a, Show a) => a -> String
 show6 n | n > 100000 = show n
         | n > 10000  = '0' : show n
         | n > 1000   = "00" ++ show n
