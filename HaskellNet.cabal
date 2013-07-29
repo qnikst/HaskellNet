@@ -55,5 +55,5 @@ Library
     Crypto > 4.2.1,
     base64-string,
     old-time,
-    mime-mail >= 0.3.0 && < 0.4,
+    mime-mail >= 0.4.0 && < 0.5,
     text
