@@ -236,11 +236,13 @@ doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
 sendMimeMail :: String -> String -> String -> LT.Text
              -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection -> IO ()
 sendMimeMail to from subject plainBody htmlBody attachments con = do
-  myMail <- simpleMail (T.pack to) (T.pack from) (T.pack subject)
+  myMail <- simpleMail (address to) (address from) (T.pack subject)
             plainBody htmlBody attachments
   renderedMail <- renderMail' myMail
   sendMail from [to] (lazyToStrict renderedMail) con
   closeSMTP con
+  where
+    address = Address Nothing . T.pack
 
 -- haskellNet uses strict bytestrings
 -- TODO: look at making haskellnet lazy
