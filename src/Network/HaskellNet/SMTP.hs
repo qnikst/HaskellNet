@@ -104,15 +104,17 @@ connectSMTP = flip connectSMTPPort 25
 
 tryCommand :: SMTPConnection -> Command -> Int -> ReplyCode
            -> IO ByteString
-tryCommand conn cmd tries expectedReply | tries <= 0 = do
-  bsClose (bsstream conn)
-  fail $ "cannot execute command " ++ show cmd ++
-           ", expected reply code " ++ show expectedReply
 tryCommand conn cmd tries expectedReply = do
   (code, msg) <- sendCommand conn cmd
-  if code == expectedReply then
-      return msg else
-      tryCommand conn cmd (tries - 1) expectedReply
+  case () of
+    _ | code == expectedReply   -> return msg
+    _ | tries > 1               ->
+          tryCommand conn cmd (tries - 1) expectedReply
+    _ | otherwise               -> do
+          bsClose (bsstream conn)
+          fail $ "cannot execute command " ++ show cmd ++
+                 ", expected reply code " ++ show expectedReply ++
+                 ", but received " ++ show code ++ " " ++ BS.unpack msg
 
 -- | create SMTPConnection from already connected Stream
 connectStream :: BSStream -> IO SMTPConnection
