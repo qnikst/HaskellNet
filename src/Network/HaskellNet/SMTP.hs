@@ -45,7 +45,9 @@ import qualified Data.Text as T
 
 import Prelude hiding (catch)
 
-data SMTPConnection = SMTPC !BSStream ![ByteString]
+-- The response field seems to be unused. It's saved at one place, but never
+-- retrieved.
+data SMTPConnection = SMTPC { bsstream :: !BSStream, _response :: ![ByteString] }
 
 data Command = HELO String
              | EHLO String
@@ -100,17 +102,19 @@ connectSMTP :: String     -- ^ name of the server
             -> IO SMTPConnection
 connectSMTP = flip connectSMTPPort 25
 
-tryCommand :: BSStream -> Command -> Int -> ReplyCode
+tryCommand :: SMTPConnection -> Command -> Int -> ReplyCode
            -> IO ByteString
-tryCommand st cmd tries expectedReply | tries <= 0 = do
-  bsClose st
-  fail $ "cannot execute command " ++ show cmd ++
-           ", expected reply code " ++ show expectedReply
-tryCommand st cmd tries expectedReply = do
-  (code, msg) <- sendCommand (SMTPC st []) cmd
-  if code == expectedReply then
-      return msg else
-      tryCommand st cmd (tries - 1) expectedReply
+tryCommand conn cmd tries expectedReply = do
+  (code, msg) <- sendCommand conn cmd
+  case () of
+    _ | code == expectedReply   -> return msg
+    _ | tries > 1               ->
+          tryCommand conn cmd (tries - 1) expectedReply
+    _ | otherwise               -> do
+          bsClose (bsstream conn)
+          fail $ "cannot execute command " ++ show cmd ++
+                 ", expected reply code " ++ show expectedReply ++
+                 ", but received " ++ show code ++ " " ++ BS.unpack msg
 
 -- | create SMTPConnection from already connected Stream
 connectStream :: BSStream -> IO SMTPConnection
@@ -120,7 +124,7 @@ connectStream st =
               do bsClose st
                  fail "cannot connect to the server"
        senderHost <- getHostName
-       msg <- tryCommand st (EHLO senderHost) 3 250
+       msg <- tryCommand (SMTPC st []) (EHLO senderHost) 3 250
        return (SMTPC st (tail $ BS.lines msg))
 
 parseResponse :: BSStream -> IO (ReplyCode, ByteString)
@@ -207,15 +211,14 @@ sendMail :: String     -- ^ sender mail
          -> ByteString -- ^ data
          -> SMTPConnection
          -> IO ()
-sendMail sender receivers dat conn =
-    catcher `handle` mainProc
-    where mainProc =
-              do (250, _) <- sendCommand conn (MAIL sender)
-                 vals <- mapM (sendCommand conn . RCPT) receivers
-                 unless (all ((==250) . fst) vals) $ fail "sendMail error"
-                 (250, _) <- sendCommand conn (DATA dat)
+sendMail sender receivers dat conn = do
+                 sendAndCheck (MAIL sender)
+                 mapM_ (sendAndCheck . RCPT) receivers
+                 sendAndCheck (DATA dat)
                  return ()
-          catcher e@(PatternMatchFail _) = throwIO e
+  where
+    -- Try the command once and @fail@ if the response isn't 250.
+    sendAndCheck cmd = tryCommand conn cmd 1 250
 
 -- | doSMTPPort open a connection, and do an IO action with the
 -- connection, and then close it.
