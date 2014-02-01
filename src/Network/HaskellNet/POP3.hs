@@ -54,14 +54,18 @@ import Network.HaskellNet.POP3.Connection
 hexDigest :: [Char] -> [Char]
 hexDigest = concatMap (flip showHex "") . hash . map (toEnum.fromEnum)
 
-strip :: ByteString -> ByteString
-strip = trimR . trimR
-     where
-         trimR s = let rs = BS.reverse s in
-                   BS.dropWhile blank rs
-
 blank :: Char -> Bool
 blank a = isSpace a || isControl a
+
+trimR :: ByteString -> ByteString
+trimR s = let rs = BS.reverse s in
+        BS.dropWhile blank rs
+
+strip :: ByteString -> ByteString
+strip = trimR . trimR
+
+stripEnd :: ByteString -> ByteString
+stripEnd = BS.reverse . trimR
 
 -- | connecting to the pop3 server specified by the hostname and port
 -- number
@@ -101,7 +105,7 @@ responseML conn =
                  return (Ok, BS.unlines (BS.drop 4 reply : rest))
          else return (Err, BS.drop 5 reply)
     where st = stream conn
-          getRest = do l <- strip <$> bsGetLine st
+          getRest = do l <- stripEnd <$> bsGetLine st
                        if l == BS.singleton '.'
                          then return []
                          else (l:) <$> getRest
