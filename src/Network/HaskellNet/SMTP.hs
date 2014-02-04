@@ -243,7 +243,6 @@ sendMimeMail to from subject plainBody htmlBody attachments con = do
             plainBody htmlBody attachments
   renderedMail <- renderMail' myMail
   sendMail from [to] (lazyToStrict renderedMail) con
-  closeSMTP con
   where
     address = Address Nothing . T.pack
 
