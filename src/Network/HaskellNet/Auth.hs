@@ -1,13 +1,14 @@
 module Network.HaskellNet.Auth
 where
 
-import Data.Digest.MD5
-import Codec.Utils
+import Crypto.Hash.MD5
 import qualified Codec.Binary.Base64.String as B64 (encode, decode)
 
+import Data.Word
 import Data.List
 import Data.Bits
 import Data.Array
+import qualified Data.ByteString as B
 
 type UserName = String
 type Password = String
@@ -30,16 +31,19 @@ b64Encode = map (toEnum.fromEnum) . B64.encode . map (toEnum.fromEnum)
 b64Decode :: String -> String
 b64Decode = map (toEnum.fromEnum) . B64.decode . map (toEnum.fromEnum)
 
-showOctet :: [Octet] -> String
+showOctet :: [Word8] -> String
 showOctet = concat . map hexChars
     where hexChars c = [arr ! (c `div` 16), arr ! (c `mod` 16)]
           arr = listArray (0, 15) "0123456789abcdef"
 
-hmacMD5 :: String -> String -> [Octet]
-hmacMD5 text key = hash $ okey ++ hash (ikey ++ map (toEnum.fromEnum) text)
+hashMD5 :: [Word8] -> [Word8]
+hashMD5 = B.unpack . hash . B.pack
+
+hmacMD5 :: String -> String -> [Word8]
+hmacMD5 text key = hashMD5 $ okey ++ hashMD5 (ikey ++ map (toEnum.fromEnum) text)
     where koc = map (toEnum.fromEnum) key
           key' = if length koc > 64
-                 then hash koc ++ replicate 48 0
+                 then hashMD5 $ koc ++ replicate 48 0
                  else koc ++ replicate (64-length koc) 0
           ipad = replicate 64 0x36
           opad = replicate 64 0x5c

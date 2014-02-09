@@ -52,7 +52,7 @@ Library
     bytestring,
     pretty,
     array,
-    Crypto > 4.2.1,
+    cryptohash,
     base64-string,
     old-time,
     mime-mail >= 0.4.0 && < 0.5,

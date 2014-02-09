@@ -33,8 +33,9 @@ import Network
 import qualified Network.HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
-import Data.Digest.MD5
+import Crypto.Hash.MD5
 import Numeric (showHex)
 
 import Control.Applicative ((<$>))
@@ -52,7 +53,7 @@ import Network.HaskellNet.POP3.Types
 import Network.HaskellNet.POP3.Connection
 
 hexDigest :: [Char] -> [Char]
-hexDigest = concatMap (flip showHex "") . hash . map (toEnum.fromEnum)
+hexDigest = concatMap (flip showHex "") . B.unpack . hash . B.pack . map (toEnum.fromEnum)
 
 blank :: Char -> Bool
 blank a = isSpace a || isControl a
