@@ -1,4 +1,41 @@
 
+0.3 -> 0.4
+----------
+
+ - Merge pull request #22 from dpwright/parse-fix:
+   Fix parser error when passing parameters to FETCH
+   (See http://stackoverflow.com/questions/26183675/error-when-fetching-subject-from-email-using-haskellnets-imap)
+ - Merge pull request #20 from vincenthz/master:
+   Replace Crypto by the much faster cryptohash
+ - Merge pull request #19 from fegu/patch-1
+   remove closeSMTP at end of sendMimeMail
+   (sendMail and sendMimeMail should have the same behaviour towards the
+   connection given to the function. In addition, Office365 causes the
+   closeSMTP of sendMimeMail to raise an exception of already closed. Thus,
+   removed.)
+ - Merge pull request #18 from michaelbeaumont/issue17
+   Stopped the POP3 module from removing whitespace before response lines
+   except for the initial line with the POP3 status. Retrieved messages can now
+   be correctly parsed.
+ - Merge pull request #16 from fegu/master
+   Fix store command to enable Office365 support (Adding a space between UID
+   and flags in STORE command. This should have been there all the time, but
+   while some IMAP servers (notably Gmail) accepts that it is missing, others
+   (notably Office365) requires it.)
+ - Merge pull request #10 from ppetr/master
+   Improve `tryCommand` so that it includes the failed server response.
+ - Improve a bad piece of code in `sendMail`.
+   It used pattern matching and then catching the exception using `handle`,
+   which is very non-idiomatic and error prone. Also the code seemed to catch
+   the failure only to rethrow it.
+ - Merge pull request #8 from ppetr/master
+   Upgrade to mime-mail >= 0.4.
+ - Merge pull request #5 from sordina/master
+   Adding show constraint to show6 in Network/HaskellNet/IMAP.hs for
+   compatibility with GHC 7.4.1
+ - Merge pull request #4 from nh2/ghc-7.2
+   Fix compilation with GHC 7.0 and 7.2 (fixes Char and List imports)
+
 0.2.5 -> 0.3
 ------------
 
@@ -38,4 +75,4 @@ API changes:
    Network.HaskellNet.Connection (POP connection functions)
  * IMAP.Parsers:
    - removed unused Either handling functions
-   - constraind exports (originally exported everything)
+   - constraind exports (originally exported everything)commit 682edece1bf5fb5923ea5bd04309819c630ff33d
