@@ -32,7 +32,7 @@ b64Decode :: String -> String
 b64Decode = map (toEnum.fromEnum) . B64.decode . map (toEnum.fromEnum)
 
 showOctet :: [Word8] -> String
-showOctet = concat . map hexChars
+showOctet = concatMap hexChars
     where hexChars c = [arr ! (c `div` 16), arr ! (c `mod` 16)]
           arr = listArray (0, 15) "0123456789abcdef"
 
@@ -51,7 +51,7 @@ hmacMD5 text key = hashMD5 $ okey ++ hashMD5 (ikey ++ map (toEnum.fromEnum) text
           okey = zipWith xor key' opad
 
 plain :: UserName -> Password -> String
-plain user pass = b64Encode $ concat $ intersperse "\0" [user, user, pass]
+plain user pass = b64Encode $ intercalate "\0" ["", user, pass]
 
 login :: UserName -> Password -> (String, String)
 login user pass = (b64Encode user, b64Encode pass)
