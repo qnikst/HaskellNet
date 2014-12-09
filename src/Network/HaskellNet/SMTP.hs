@@ -206,10 +206,10 @@ closeSMTP c@(SMTPC conn _) =
 -}
 
 -- | Authentication.
-authenticate :: AuthType -> UserName -> Password -> SMTPConnection -> IO ()
+authenticate :: AuthType -> UserName -> Password -> SMTPConnection -> IO Bool
 authenticate at username password conn  = do
         (code, _) <- sendCommand conn $ AUTH at username password
-        unless (code == 235) $ fail "authentication failed."
+        return (code == 235)
 
 -- | sending a mail to a server. This is achieved by sendMessage.  If
 -- something is wrong, it raises an IOexception.
