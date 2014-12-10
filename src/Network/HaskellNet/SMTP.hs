@@ -17,6 +17,7 @@ module Network.HaskellNet.SMTP
     , doSMTPPort
     , doSMTP
     , doSMTPStream
+    , sendPlainMail
     , sendMimeMail
     )
     where
@@ -242,6 +243,20 @@ doSMTP host execution = doSMTPPort host 25 execution
 -- is a Stream data instead of hostname and port number.
 doSMTPStream :: BSStream -> (SMTPConnection -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
+
+-- | Send plain text email.
+sendPlainMail :: String  -- ^ receiver
+              -> String  -- ^ sender
+              -> String  -- ^ subject
+              -> LT.Text -- ^ body
+              -> SMTPConnection
+              -> IO ()
+sendPlainMail to from subject body con = do
+    renderedMail <- renderMail' myMail
+    sendMail from [to] (lazyToStrict renderedMail) con
+    where
+        myMail = simpleMail' (address to) (address from) (T.pack subject) body
+        address = Address Nothing . T.pack
 
 sendMimeMail :: String -> String -> String -> LT.Text
              -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection -> IO ()
