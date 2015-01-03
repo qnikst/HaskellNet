@@ -17,7 +17,7 @@ module Network.HaskellNet.SMTP
     , doSMTPPort
     , doSMTP
     , doSMTPStream
-    , sendPlainMail
+    , sendPlainTextMail
     , sendMimeMail
     )
     where
@@ -245,13 +245,13 @@ doSMTPStream :: BSStream -> (SMTPConnection -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
 
 -- | Send plain text email.
-sendPlainMail :: String  -- ^ receiver
+sendPlainTextMail :: String  -- ^ receiver
               -> String  -- ^ sender
               -> String  -- ^ subject
               -> LT.Text -- ^ body
               -> SMTPConnection
               -> IO ()
-sendPlainMail to from subject body con = do
+sendPlainTextMail to from subject body con = do
     renderedMail <- renderMail' myMail
     sendMail from [to] (lazyToStrict renderedMail) con
     where
