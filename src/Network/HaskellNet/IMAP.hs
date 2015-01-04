@@ -338,36 +338,36 @@ searchCharset conn charset queries =
 fetch :: IMAPConnection -> UID -> IO ByteString
 fetch conn uid =
     do lst <- fetchByString conn uid "BODY[]"
-       return $ maybe BS.empty BS.pack $ lookup "BODY[]" lst
+       return $ maybe BS.empty BS.pack $ lookup' "BODY[]" lst
 
 fetchHeader :: IMAPConnection -> UID -> IO ByteString
 fetchHeader conn uid =
     do lst <- fetchByString conn uid "BODY[HEADER]"
-       return $ maybe BS.empty BS.pack $ lookup "BODY[HEADER]" lst
+       return $ maybe BS.empty BS.pack $ lookup' "BODY[HEADER]" lst
 
 fetchSize :: IMAPConnection -> UID -> IO Int
 fetchSize conn uid =
     do lst <- fetchByString conn uid "RFC822.SIZE"
-       return $ maybe 0 read $ lookup "RFC822.SIZE" lst
+       return $ maybe 0 read $ lookup' "RFC822.SIZE" lst
 
 fetchHeaderFields :: IMAPConnection
                   -> UID -> [String] -> IO ByteString
 fetchHeaderFields conn uid hs =
     do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS "++unwords hs++"]")
        return $ maybe BS.empty BS.pack $
-              lookup ("BODY[HEADER.FIELDS "++unwords hs++"]") lst
+              lookup' ("BODY[HEADER.FIELDS "++unwords hs++"]") lst
 
 fetchHeaderFieldsNot :: IMAPConnection
                      -> UID -> [String] -> IO ByteString
 fetchHeaderFieldsNot conn uid hs =
     do let fetchCmd = "BODY[HEADER.FIELDS.NOT "++unwords hs++"]"
        lst <- fetchByString conn uid fetchCmd
-       return $ maybe BS.empty BS.pack $ lookup fetchCmd lst
+       return $ maybe BS.empty BS.pack $ lookup' fetchCmd lst
 
 fetchFlags :: IMAPConnection -> UID -> IO [Flag]
 fetchFlags conn uid =
     do lst <- fetchByString conn uid "FLAGS"
-       return $ getFlags $ lookup "FLAGS" lst
+       return $ getFlags $ lookup' "FLAGS" lst
     where getFlags Nothing  = []
           getFlags (Just s) = eval' dvFlags "" s
 
@@ -376,7 +376,7 @@ fetchR :: IMAPConnection -> (UID, UID)
 fetchR conn r =
     do lst <- fetchByStringR conn r "BODY[]"
        return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $
-                                       lookup "BODY[]" vs)) lst
+                                       lookup' "BODY[]" vs)) lst
 fetchByString :: IMAPConnection -> UID -> String
               -> IO [(String, String)]
 fetchByString conn uid command =
@@ -388,7 +388,7 @@ fetchByStringR :: IMAPConnection -> (UID, UID) -> String
 fetchByStringR conn (s, e) command =
     fetchCommand conn ("UID FETCH "++show s++":"++show e++" "++command) proc
     where proc (n, ps) =
-              (maybe (toEnum (fromIntegral n)) read (lookup "UID" ps), ps)
+              (maybe (toEnum (fromIntegral n)) read (lookup' "UID" ps), ps)
 
 fetchCommand :: IMAPConnection -> String
              -> ((Integer, [(String, String)]) -> b) -> IO [b]
@@ -406,8 +406,8 @@ storeFull conn uidstr query isSilent =
           flgs (PlusFlags fs)    = toFStr "+FLAGS" $ fstrs fs
           flgs (MinusFlags fs)   = toFStr "-FLAGS" $ fstrs fs
           procStore (n, ps) = (maybe (toEnum (fromIntegral n)) read
-                                         (lookup "UID" ps)
-                              ,maybe [] (eval' dvFlags "") (lookup "FLAG" ps))
+                                         (lookup' "UID" ps)
+                              ,maybe [] (eval' dvFlags "") (lookup' "FLAG" ps))
 
 
 store :: IMAPConnection -> UID -> FlagsQuery -> IO ()
@@ -450,3 +450,10 @@ crlf = BS.pack "\r\n"
 
 bsPutCrLf :: BSStream -> ByteString -> IO ()
 bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
+
+lookup' :: String -> [(String, b)] -> Maybe b
+lookup' q [] = Nothing
+lookup' q ((k,v):xs) | q == lastWord k  = return v
+                     | otherwise        = lookup' q xs
+    where
+        lastWord = last . words
