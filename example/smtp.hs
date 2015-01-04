@@ -1,32 +1,67 @@
-import System.IO
-import Network.HaskellNet.SMTP
-import Text.Mime
-import qualified Data.ByteString.Char8 as BS
-import Codec.Binary.Base64.String
+{-# OPTIONS -fno-warn-missing-signatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 
+import           Network.HaskellNet.SMTP
+import           Network.HaskellNet.Auth
+import           Network.Mail.Mime
+import qualified Data.Text as T
+import qualified Data.ByteString as S
+import qualified Data.ByteString.Lazy as B
 
-smtpServer = "outmail.f2s.com"
-sendFrom = "test@test.org"
-sendTo = ["wrwills@gmail.com"]
+-- | Your settings
+server       = "smtp.test.com"
+port         = toEnum 25
+username     = "username"
+password     = "password"
+authType     = PLAIN
+from         = "test@test.com"
+to           = "to@test.com"
+subject      = "Network.HaskellNet.SMTP Test :)"
+plainBody    = "Hello world!"
+htmlBody     = "<html><head></head><body><h1>Hello <i>world!</i></h1></body></html>"
+attachments  = [] -- example [("application/octet-stream", "/path/to/file1.tar.gz), ("application/pdf", "/path/to/file2.pdf")]
 
+-- | Send plain text mail
+example1 = doSMTP server $ \conn ->
+    sendPlainTextMail to from subject plainBody conn
 
-main = do
-  con <- connectSMTP smtpServer
-  message <- BS.readFile "example/message.txt"
-  messageHtml <- BS.readFile "example/message.html"
-  let textP = SinglePart [("Content-Type", "text/plain; charset=utf-8")] message
-  let htmlP = SinglePart [("Content-Type", "text/html; charset=utf-8")] messageHtml
-  let msg = MultiPart [("From", "Network.HaskellNet <" ++ sendFrom ++ ">"),("Subject","Test")] [htmlP, textP]
-  sendMail sendFrom sendTo (BS.pack $ show $ showMime "utf-8" msg) con
-  closeSMTP con
-         
+-- | With custom port number
+example2 = doSMTPPort server port $ \conn ->
+    sendPlainTextMail to from subject plainBody conn
 
+-- | Manually open and close the connection
+example3 = do
+    conn <- connectSMTP server
+    sendPlainTextMail to from subject plainBody conn
+    closeSMTP conn
 
-  --let msg = ([("From", "Network.HaskellNet <" ++ sendFrom ++ ">"),("Subject","Test")], MultiPart [] [textP, htmlP])
-  --sendMail sendFrom sendTo (BS.pack $ show $ showMessage "utf-8" msg) con
---  let msg = ([("From", "Network.HaskellNet <" ++ sendFrom ++ ">"),("Subject","Test")], BS.pack "\r\nhello 算法是指完成一个任from haskellnet")
+-- | Send mime mail
+example4 = doSMTP server $ \conn ->
+    sendMimeMail to from subject plainBody htmlBody [] conn
 
---htmlP = SinglePart [("Content-Type", "text/html; charset=utf-8", "Content-Transfer-Encoding", ""] BS.pack $ encode $  
+-- | With attachments (modify the `attachments` binding)
+example5 = doSMTP server $ \conn ->
+    sendMimeMail to from subject plainBody htmlBody attachments conn
 
+-- | With authentication
+example6 = doSMTP server $ \conn -> do
+    authSuccess <- authenticate authType username password conn
+    if authSuccess
+        then sendMimeMail to from subject plainBody htmlBody [] conn
+        else putStrLn "Authentication failed."
 
+-- | Custom
+example7 = do
+    conn <- connectSMTPPort server port
+    let newMail = Mail (Address (Just "My Name") "from@test.org")
+                       [(Address Nothing "to@test.org")]
+                       [(Address Nothing "cc1@test.org"), (Address Nothing "cc2@test.org")]
+                       []
+                       [("Subject", T.pack subject)]
+                       [[htmlPart htmlBody, plainPart plainBody]]
+    newMail' <- addAttachments attachments newMail
+    renderedMail <- renderMail' newMail'
+    sendMail from [to] (S.concat . B.toChunks $ renderedMail) conn
+    closeSMTP conn
 
+main = example1
