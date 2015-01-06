@@ -1,0 +1,10 @@
+language: haskell
+matrix:
+  fast_finish: true
+  include:
+    - ghc: 7.8
+    - ghc: 7.6
+    - ghc: 7.4
+  allow_failures:
+    - ghc: 7.4
+      install: cabal install --only-dependencies

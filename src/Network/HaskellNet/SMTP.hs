@@ -36,7 +36,7 @@ import Data.Char (isDigit)
 
 import Network.HaskellNet.Auth
 
-import System.IO
+{-import System.IO-}
 
 import Network.Mail.Mime
 import qualified Data.ByteString.Lazy as B
@@ -44,8 +44,6 @@ import qualified Data.ByteString as S
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Text as T
-
-import Prelude hiding (catch)
 
 -- The response field seems to be unused. It's saved at one place, but never
 -- retrieved.
