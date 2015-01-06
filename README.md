@@ -1,6 +1,8 @@
 HaskellNet
 ==========
 
+[![Build Status](https://travis-ci.org/lemol/HaskellNet.svg)](https://travis-ci.org/lemol/HaskellNet)
+
 This package provides client support for the E-mail protocols POP3,
 SMTP, and IMAP.
 
