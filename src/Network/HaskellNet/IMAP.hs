@@ -452,7 +452,7 @@ bsPutCrLf :: BSStream -> ByteString -> IO ()
 bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
 
 lookup' :: String -> [(String, b)] -> Maybe b
-lookup' q [] = Nothing
+lookup' _ [] = Nothing
 lookup' q ((k,v):xs) | q == lastWord k  = return v
                      | otherwise        = lookup' q xs
     where

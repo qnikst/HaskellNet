@@ -13,8 +13,8 @@ your mail server settings and then loading the file in ghci and type
 
   ghci -hide-package monads-fd example/smtpMimeMail.hs
   main
-  
-If you encounter problems and want to debug the ghci 
+
+If you encounter problems and want to debug the ghci
 debugger works well:
 
   :set -fbreak-on-exception
