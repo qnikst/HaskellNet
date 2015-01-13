@@ -1,4 +1,48 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{- |
+
+This module provides functions for working with the SMTP protocol in the client side,
+including for /opening/ and /closing/ connections, /sending commands/ to the server,
+/authenticate/ and /sending mails/ (plain text or mime mails).
+
+Here's a basic usage example:
+
+>
+> import Network.HaskellNet.SMTP
+> import Network.HaskellNet.Auth
+> import qualified Data.Text.Lazy as T
+>
+> main = doSMTP "your.smtp.server.com" $ \conn ->
+>    authSucceed <- authenticate PLAIN "username" "password" conn
+>    if authSucceed
+>        then sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello!") conn
+>        else print "Authentication failed."
+
+Notes for the above example:
+
+   * First the 'SMTPConnection' is opened with the 'doSMTP' function.
+     The connection should also be established with functions such as 'connectSMTP',
+     'connectSMTPPort' and 'doSMTPPort'.
+     With the @doSMTP*@ functions the connection is opened, then executed an action
+     with it and then closed automatically.
+     If the connection is opened with the @connectSMTP*@ functions you may want to
+     close it with the 'closeSMTP' function after using it.
+     It is also posible to create a 'SMTPConnection' from an already opened connection
+     stream ('BSStream') using the 'connectStream' or 'doSMTPStream' functions.
+
+     /NOTE:/ For /SSL\/TLS/ support you may establish the connection using
+             the functions provided in the "Network.HaskellNet.SMTP.SSL"
+             module of the <http://hackage.haskell.org/package/HaskellNet-SSL>
+             package.
+
+   * The 'authenticate' function authenticates to the server with the specified 'AuthType'.
+     'PLAIN', 'LOGIN' and 'CRAM_MD5' 'AuthType'\'s are available. It returns a 'Bool'
+     indicating either the authentication succeed or not.
+
+
+   * To send a mail you can use 'sendPlainTextMail' for plain text mail, or 'sendMimeMail'
+     for mime mail.
+-}
 module Network.HaskellNet.SMTP
     ( -- * Types
       Command(..)
@@ -35,8 +79,6 @@ import Control.Monad (unless)
 import Data.Char (isDigit)
 
 import Network.HaskellNet.Auth
-
-{-import System.IO-}
 
 import Network.Mail.Mime
 import qualified Data.ByteString.Lazy as B
@@ -204,7 +246,16 @@ closeSMTP c@(SMTPC conn _) =
        bsClose conn `catch` \(_ :: IOException) -> return ()
 -}
 
--- | Authentication.
+{- |
+Authentication. It will return 'True' if the authentication succeeds.
+Here's an example of sending a mail with a server that requires
+authentication:
+
+>    authSucceed <- authenticate PLAIN "username" "password" conn
+>    if authSucceed 
+>        then sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello!") conn
+>        else print "Authentication failed."
+-}
 authenticate :: AuthType -> UserName -> Password -> SMTPConnection -> IO Bool
 authenticate at username password conn  = do
         (code, _) <- sendCommand conn $ AUTH at username password
@@ -242,13 +293,13 @@ doSMTP host execution = doSMTPPort host 25 execution
 doSMTPStream :: BSStream -> (SMTPConnection -> IO a) -> IO a
 doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
 
--- | Send plain text email.
+-- | Send a plain text mail.
 sendPlainTextMail :: String  -- ^ receiver
-              -> String  -- ^ sender
-              -> String  -- ^ subject
-              -> LT.Text -- ^ body
-              -> SMTPConnection
-              -> IO ()
+                  -> String  -- ^ sender
+                  -> String  -- ^ subject
+                  -> LT.Text -- ^ body
+                  -> SMTPConnection -- ^ the connection
+                  -> IO ()
 sendPlainTextMail to from subject body con = do
     renderedMail <- renderMail' myMail
     sendMail from [to] (lazyToStrict renderedMail) con
@@ -256,8 +307,15 @@ sendPlainTextMail to from subject body con = do
         myMail = simpleMail' (address to) (address from) (T.pack subject) body
         address = Address Nothing . T.pack
 
-sendMimeMail :: String -> String -> String -> LT.Text
-             -> LT.Text -> [(T.Text, FilePath)] -> SMTPConnection -> IO ()
+-- | Send a mime mail.
+sendMimeMail :: String               -- ^ receiver
+             -> String               -- ^ sender
+             -> String               -- ^ subject
+             -> LT.Text              -- ^ plain text body
+             -> LT.Text              -- ^ html body
+             -> [(T.Text, FilePath)] -- ^ attachments: [(content_type, path)]
+             -> SMTPConnection
+             -> IO ()
 sendMimeMail to from subject plainBody htmlBody attachments con = do
   myMail <- simpleMail (address to) (address from) (T.pack subject)
             plainBody htmlBody attachments
