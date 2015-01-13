@@ -2,8 +2,8 @@
 {- |
 
 This module provides functions for working with the SMTP protocol in the client side,
-including for /opening/ and /closing/ connections, /sending commands/ to the server,
-/authenticate/ and /sending mails/ (plain text or mime mails).
+including /opening/ and /closing/ connections, /sending commands/ to the server,
+/authenticate/ and /sending mails/.
 
 Here's a basic usage example:
 
@@ -15,7 +15,7 @@ Here's a basic usage example:
 > main = doSMTP "your.smtp.server.com" $ \conn ->
 >    authSucceed <- authenticate PLAIN "username" "password" conn
 >    if authSucceed
->        then sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello!") conn
+>        then sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello! This is the mail body!") conn
 >        else print "Authentication failed."
 
 Notes for the above example:
@@ -27,16 +27,17 @@ Notes for the above example:
      with it and then closed automatically.
      If the connection is opened with the @connectSMTP*@ functions you may want to
      close it with the 'closeSMTP' function after using it.
-     It is also posible to create a 'SMTPConnection' from an already opened connection
+     It is also possible to create a 'SMTPConnection' from an already opened connection
      stream ('BSStream') using the 'connectStream' or 'doSMTPStream' functions.
 
      /NOTE:/ For /SSL\/TLS/ support you may establish the connection using
-             the functions provided in the "Network.HaskellNet.SMTP.SSL"
-             module of the <http://hackage.haskell.org/package/HaskellNet-SSL>
+             the functions (such as @connectSMTPSSL@) provided in the
+             @Network.HaskellNet.SMTP.SSL@ module of the
+             <http://hackage.haskell.org/package/HaskellNet-SSL HaskellNet-SSL>
              package.
 
    * The 'authenticate' function authenticates to the server with the specified 'AuthType'.
-     'PLAIN', 'LOGIN' and 'CRAM_MD5' 'AuthType'\'s are available. It returns a 'Bool'
+     'PLAIN', 'LOGIN' and 'CRAM_MD5' 'AuthType's are available. It returns a 'Bool'
      indicating either the authentication succeed or not.
 
 
@@ -247,7 +248,7 @@ closeSMTP c@(SMTPC conn _) =
 -}
 
 {- |
-Authentication. It will return 'True' if the authentication succeeds.
+This function will return 'True' if the authentication succeeds.
 Here's an example of sending a mail with a server that requires
 authentication:
 
