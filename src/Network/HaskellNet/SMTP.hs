@@ -152,7 +152,7 @@ tryCommand conn cmd tries expectedReply = do
     _ | code == expectedReply   -> return msg
     _ | tries > 1               ->
           tryCommand conn cmd (tries - 1) expectedReply
-    _ | otherwise               -> do
+      | otherwise               -> do
           bsClose (bsstream conn)
           fail $ "cannot execute command " ++ show cmd ++
                  ", expected reply code " ++ show expectedReply ++
@@ -178,7 +178,7 @@ parseResponse st =
                  let (c, bdy) = BS.span isDigit l
                  if not (BS.null bdy) && BS.head bdy == '-'
                     then do (c2, ls) <- readLines
-                            return (c2, (BS.tail bdy:ls))
+                            return (c2, BS.tail bdy:ls)
                     else return (c, [BS.tail bdy])
 
 
@@ -190,7 +190,7 @@ sendCommand (SMTPC conn _) (DATA dat) =
        unless (code == 354) $ fail "this server cannot accept any data."
        mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]
        parseResponse conn
-    where sendLine l = bsPutCrLf conn l
+    where sendLine = bsPutCrLf conn
 sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
     do bsPutCrLf conn command
        (_, _) <- parseResponse conn
@@ -198,7 +198,7 @@ sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
        (_, _) <- parseResponse conn
        bsPutCrLf conn $ BS.pack passB64
        parseResponse conn
-    where command = BS.pack $ "AUTH LOGIN"
+    where command = BS.pack "AUTH LOGIN"
           (userB64, passB64) = login username password
 sendCommand (SMTPC conn _) (AUTH at username password) =
     do bsPutCrLf conn command
@@ -225,7 +225,7 @@ sendCommand (SMTPC conn _) meth =
                       QUIT         -> "QUIT"
                       (DATA _)     ->
                           error "BUG: DATA pattern should be matched by sendCommand patterns"
-                      (AUTH _ _ _)     ->
+                      (AUTH {})     ->
                           error "BUG: AUTH pattern should be matched by sendCommand patterns"
 
 -- | close the connection.  This function send the QUIT method, so you
@@ -252,7 +252,7 @@ Here's an example of sending a mail with a server that requires
 authentication:
 
 >    authSucceed <- authenticate PLAIN "username" "password" conn
->    if authSucceed 
+>    if authSucceed
 >        then sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello!") conn
 >        else print "Authentication failed."
 -}
@@ -280,18 +280,18 @@ sendMail sender receivers dat conn = do
 -- | doSMTPPort open a connection, and do an IO action with the
 -- connection, and then close it.
 doSMTPPort :: String -> PortNumber -> (SMTPConnection -> IO a) -> IO a
-doSMTPPort host port execution =
-    bracket (connectSMTPPort host port) closeSMTP execution
+doSMTPPort host port =
+    bracket (connectSMTPPort host port) closeSMTP
 
 -- | doSMTP is similar to doSMTPPort, except that it does not require
 -- port number but connects to the server with port 25.
 doSMTP :: String -> (SMTPConnection -> IO a) -> IO a
-doSMTP host execution = doSMTPPort host 25 execution
+doSMTP host = doSMTPPort host 25
 
 -- | doSMTPStream is similar to doSMTPPort, except that its argument
 -- is a Stream data instead of hostname and port number.
 doSMTPStream :: BSStream -> (SMTPConnection -> IO a) -> IO a
-doSMTPStream s execution = bracket (connectStream s) closeSMTP execution
+doSMTPStream s = bracket (connectStream s) closeSMTP
 
 -- | Send a plain text mail.
 sendPlainTextMail :: String  -- ^ receiver
