@@ -204,7 +204,7 @@ logout c = do bsPutCrLf (stream c) $ BS.pack "a0001 LOGOUT"
               bsClose (stream c)
 
 login :: IMAPConnection -> A.UserName -> A.Password -> IO ()
-login conn username password = sendCommand conn ("LOGIN " ++ username ++ " " ++ password)
+login conn username password = sendCommand conn ("LOGIN " ++ (escapeLogin username) ++ " " ++ (escapeLogin password))
                                pNone
 
 authenticate :: IMAPConnection -> A.AuthType
@@ -457,3 +457,18 @@ lookup' q ((k,v):xs) | q == lastWord k  = return v
                      | otherwise        = lookup' q xs
     where
         lastWord = last . words
+
+-- TODO: This is just a first trial solution for this stack overflow question:
+--       http://stackoverflow.com/questions/26183675/error-when-fetching-subject-from-email-using-haskellnets-imap
+--       It must be reviewed. References: rfc3501#6.2.3, rfc2683#3.4.2.
+--       This function was tested against the password: `~1!2@3#4$5%6^7&8*9(0)-_=+[{]}\|;:'",<.>/? (with spaces in the laterals).
+escapeLogin :: String -> String
+escapeLogin x = "\"" ++ replaceSpecialChars x ++ "\""
+    where
+        replaceSpecialChars ""     = ""
+        replaceSpecialChars (c:cs) = escapeChar c ++ replaceSpecialChars cs
+        escapeChar '"' = "\\\""
+        escapeChar '\\' = "\\\\"
+        escapeChar '{' = "\\{"
+        escapeChar '}' = "\\}"
+        escapeChar s   = [s]
