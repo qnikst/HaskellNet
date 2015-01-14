@@ -1,4 +1,22 @@
 
+0.4 -> 0.4.1
+------------
+
+ - login function for IMAP must escape the password
+   Due to the possibility of the password contain special characters
+   (See https://github.com/jtdaugherty/HaskellNet/issues/31)
+ - Improved documentation for SMTP
+ - Merge pull request #29 from lemol/master:
+   Update on SMTP example
+ - Merge pull request #26 from lemol/master:
+   * Fix a bug when parsing the response of fetch in IMAP
+     (See https://github.com/jtdaugherty/HaskellNet/issues/27)
+   * Add a function for sending plain text email
+ - Merge pull request #25 from lemol/master:
+   Add a function for authentication in SMTP
+ - Merge pull request #24 from lemol/master:
+   Bug fix on PLAIN authentication encode
+
 0.3 -> 0.4
 ----------
 
