@@ -86,7 +86,7 @@ instance Show SearchQuery where
               showQuery (NOTs qry)      = "NOT " ++ show qry
               showQuery OLDs            = "OLD"
               showQuery (ONs t)         = "ON " ++ dateToStringIMAP t
-              showQuery (ORs q1 q2)     = "OR " ++ show q1 ++ " " ++ show q2 
+              showQuery (ORs q1 q2)     = "OR " ++ show q1 ++ " " ++ show q2
               showQuery (SENTBEFOREs t) = "SENTBEFORE " ++ dateToStringIMAP t
               showQuery (SENTONs t)     = "SENTON " ++ dateToStringIMAP t
               showQuery (SENTSINCEs t)  = "SENTSINCE " ++ dateToStringIMAP t
@@ -168,7 +168,7 @@ getResponse s = unlinesCRLF <$> getLs
                                           return (l' : ls)
                      | isTagged l -> (l:) <$> getLs
                      | otherwise -> return [l]
-          getLiteral l len = 
+          getLiteral l len =
               do lit <- bsGet s len
                  l2 <- strip <$> bsGetLine s
                  let l' = BS.concat [l, crlfStr, lit, l2]
