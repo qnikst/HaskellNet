@@ -7,6 +7,7 @@ import           Network.Mail.Mime
 import qualified Data.Text as T
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as B
+import           Control.Monad.Trans (lift, liftIO)
 
 -- | Your settings
 server       = "smtp.test.com"
@@ -22,46 +23,46 @@ htmlBody     = "<html><head></head><body><h1>Hello <i>world!</i></h1></body></ht
 attachments  = [] -- example [("application/octet-stream", "/path/to/file1.tar.gz), ("application/pdf", "/path/to/file2.pdf")]
 
 -- | Send plain text mail
-example1 = doSMTP server $ \conn ->
-    sendPlainTextMail to from subject plainBody conn
+example1 = runNewSMTP server $
+    sendPlainTextMail' to from subject plainBody
 
 -- | With custom port number
-example2 = doSMTPPort server port $ \conn ->
-    sendPlainTextMail to from subject plainBody conn
+example2 = runNewSMTPPort server port $
+    sendPlainTextMail' to from subject plainBody
 
 -- | Manually open and close the connection
 example3 = do
     conn <- connectSMTP server
-    sendPlainTextMail to from subject plainBody conn
+    runSMTP conn $
+        sendPlainTextMail' to from subject plainBody
     closeSMTP conn
 
 -- | Send mime mail
-example4 = doSMTP server $ \conn ->
-    sendMimeMail to from subject plainBody htmlBody [] conn
+example4 = runNewSMTP server $
+    sendMimeMail' to from subject plainBody htmlBody []
 
 -- | With attachments (modify the `attachments` binding)
-example5 = doSMTP server $ \conn ->
-    sendMimeMail to from subject plainBody htmlBody attachments conn
+example5 = runNewSMTP server $
+    sendMimeMail' to from subject plainBody htmlBody attachments
 
 -- | With authentication
-example6 = doSMTP server $ \conn -> do
-    authSuccess <- authenticate authType username password conn
-    if authSuccess
-        then sendMimeMail to from subject plainBody htmlBody [] conn
-        else putStrLn "Authentication failed."
+example6 = runNewSMTP server $ do
+    authenticate' authType username password
+    sendMimeMail' to from subject plainBody htmlBody []
 
 -- | Custom
 example7 = do
     conn <- connectSMTPPort server port
-    let newMail = Mail (Address (Just "My Name") "from@test.org")
-                       [(Address Nothing "to@test.org")]
-                       [(Address Nothing "cc1@test.org"), (Address Nothing "cc2@test.org")]
-                       []
-                       [("Subject", T.pack subject)]
-                       [[htmlPart htmlBody, plainPart plainBody]]
-    newMail' <- addAttachments attachments newMail
-    renderedMail <- renderMail' newMail'
-    sendMail from [to] (S.concat . B.toChunks $ renderedMail) conn
+    runSMTP conn $ do
+        let newMail = Mail (Address (Just "My Name") "from@test.org")
+                        [(Address Nothing "to@test.org")]
+                        [(Address Nothing "cc1@test.org"), (Address Nothing "cc2@test.org")]
+                        []
+                        [("Subject", T.pack subject)]
+                        [[htmlPart htmlBody, plainPart plainBody]]
+        newMail' <- lift $ lift $ addAttachments attachments newMail
+        renderedMail <- lift $ lift $ renderMail' newMail'
+        sendMail' from [to] (S.concat . B.toChunks $ renderedMail)
     closeSMTP conn
 
 main = example1

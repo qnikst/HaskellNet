@@ -12,11 +12,9 @@ Here's a basic usage example:
 > import Network.HaskellNet.Auth
 > import qualified Data.Text.Lazy as T
 >
-> main = doSMTP "your.smtp.server.com" $ \conn ->
->    authSucceed <- authenticate PLAIN "username" "password" conn
->    if authSucceed
->        then sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello! This is the mail body!") conn
->        else print "Authentication failed."
+> main = runNewSMTP "your.smtp.server.com" $ do
+>           authenticate PLAIN "username" "password"
+>           sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello! This is the mail body!")
 
 Notes for the above example:
 
@@ -56,7 +54,7 @@ module Network.HaskellNet.SMTP
       -- * Operation to a Connection
     , sendCommand
     , closeSMTP
-      -- * Other Useful Operations 
+      -- * Other Useful Operations
     , authenticate
     , sendMail
     , doSMTPPort
@@ -64,6 +62,17 @@ module Network.HaskellNet.SMTP
     , doSMTPStream
     , sendPlainTextMail
     , sendMimeMail
+      -- * Operations inside a SMTP monad
+    , runSMTP
+    , runNewSMTP
+    , runNewSMTPPort
+    , runSMTPStream
+    , sendCommand'
+    , closeSMTP'
+    , authenticate'
+    , sendMail'
+    , sendPlainTextMail'
+    , sendMimeMail'
     )
     where
 
@@ -88,9 +97,29 @@ import qualified Data.ByteString as S
 import qualified Data.Text.Lazy as LT
 import qualified Data.Text as T
 
+import Control.Monad.Reader
+import Control.Monad.Error
+
 -- The response field seems to be unused. It's saved at one place, but never
 -- retrieved.
 data SMTPConnection = SMTPC { bsstream :: !BSStream, _response :: ![ByteString] }
+
+type SMTP a = ReaderT SMTPConnection (ErrorT String IO) a
+
+runSMTP :: SMTPConnection -> SMTP a -> IO (Either String a)
+runSMTP conn smtp = runErrorT $ runReaderT smtp conn
+
+runNewSMTP :: String -> SMTP a -> IO (Either String a)
+runNewSMTP host = runNewSMTPPort host 25
+
+runNewSMTPPort :: String -> PortNumber -> SMTP a -> IO (Either String a)
+runNewSMTPPort host port smtp = connectSMTPPort host port >>= \conn -> do
+    res <- runSMTP conn smtp
+    runSMTP conn closeSMTP' `catchError` const (return $ Left "")
+    return res
+
+runSMTPStream :: BSStream -> SMTP a -> IO (Either String a)
+runSMTPStream st smtp = connectStream st >>= flip runSMTP smtp
 
 data Command = HELO String
              | EHLO String
@@ -145,6 +174,10 @@ connectSMTP :: String     -- ^ name of the server
             -> IO SMTPConnection
 connectSMTP = flip connectSMTPPort 25
 
+tryCommand' :: Command -> Int -> ReplyCode -> SMTP ByteString
+tryCommand' cmd tries expectedReply = ask >>= \conn ->
+    lift $ lift $ tryCommand conn cmd tries expectedReply
+
 tryCommand :: SMTPConnection -> Command -> Int -> ReplyCode
            -> IO ByteString
 tryCommand conn cmd tries expectedReply = do
@@ -182,6 +215,11 @@ parseResponse st =
                             return (c2, BS.tail bdy:ls)
                     else return (c, [BS.tail bdy])
 
+
+sendCommand' :: Command -> SMTP (ReplyCode, ByteString)
+sendCommand' cmd = do
+        conn <- ask
+        lift $ lift $ sendCommand conn cmd
 
 -- | send a method to a server
 sendCommand :: SMTPConnection -> Command -> IO (ReplyCode, ByteString)
@@ -229,6 +267,9 @@ sendCommand (SMTPC conn _) meth =
                       (AUTH {})     ->
                           error "BUG: AUTH pattern should be matched by sendCommand patterns"
 
+closeSMTP' :: SMTP ()
+closeSMTP' = ask >>= lift . lift . closeSMTP
+
 -- | close the connection.  This function send the QUIT method, so you
 -- do not have to QUIT method explicitly.
 closeSMTP :: SMTPConnection -> IO ()
@@ -247,6 +288,12 @@ closeSMTP c@(SMTPC conn _) =
        bsClose conn `catch` \(_ :: IOException) -> return ()
 -}
 
+authenticate' :: AuthType -> UserName -> Password -> SMTP ()
+authenticate' at username password = do
+        conn <- ask
+        ok <- lift $ lift $ authenticate at username password conn
+        unless ok $ throwError "Authentication failed."
+
 {- |
 This function will return 'True' if the authentication succeeds.
 Here's an example of sending a mail with a server that requires
@@ -261,6 +308,14 @@ authenticate :: AuthType -> UserName -> Password -> SMTPConnection -> IO Bool
 authenticate at username password conn  = do
         (code, _) <- sendCommand conn $ AUTH at username password
         return (code == 235)
+
+sendMail' :: String     -- ^ sender mail
+         -> [String]   -- ^ receivers
+         -> ByteString -- ^ data
+         -> SMTP ()
+sendMail' sender receivers dat = do
+        conn <- ask
+        lift . lift $ sendMail sender receivers dat conn
 
 -- | sending a mail to a server. This is achieved by sendMessage.  If
 -- something is wrong, it raises an IOexception.
@@ -294,6 +349,15 @@ doSMTP host = doSMTPPort host 25
 doSMTPStream :: BSStream -> (SMTPConnection -> IO a) -> IO a
 doSMTPStream s = bracket (connectStream s) closeSMTP
 
+sendPlainTextMail' :: String  -- ^ receiver
+                  -> String  -- ^ sender
+                  -> String  -- ^ subject
+                  -> LT.Text -- ^ body
+                  -> SMTP ()
+sendPlainTextMail' to from subject body = do
+    conn <- ask
+    lift.lift $ sendPlainTextMail to from subject body conn
+
 -- | Send a plain text mail.
 sendPlainTextMail :: String  -- ^ receiver
                   -> String  -- ^ sender
@@ -307,6 +371,17 @@ sendPlainTextMail to from subject body con = do
     where
         myMail = simpleMail' (address to) (address from) (T.pack subject) body
         address = Address Nothing . T.pack
+
+sendMimeMail' :: String               -- ^ receiver
+             -> String               -- ^ sender
+             -> String               -- ^ subject
+             -> LT.Text              -- ^ plain text body
+             -> LT.Text              -- ^ html body
+             -> [(T.Text, FilePath)] -- ^ attachments: [(content_type, path)]
+             -> SMTP ()
+sendMimeMail' to from subject plainBody htmlBody attachments = do
+    conn <- ask
+    lift . lift $ sendMimeMail to from subject plainBody htmlBody attachments conn
 
 -- | Send a mime mail.
 sendMimeMail :: String               -- ^ receiver
