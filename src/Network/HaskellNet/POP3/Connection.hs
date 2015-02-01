@@ -8,10 +8,10 @@ where
 
 import Network.HaskellNet.BSStream
 
-data POP3Connection =
-    POP3C { stream :: !BSStream
+data POP3Connection m =
+    POP3C { stream :: !(BSStream m)
           , apopKey :: !String -- ^ APOP key
           }
 
-newConnection :: BSStream -> String -> POP3Connection
+newConnection :: BSStream m -> String -> POP3Connection m
 newConnection = POP3C

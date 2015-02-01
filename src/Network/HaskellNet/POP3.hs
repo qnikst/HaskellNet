@@ -70,18 +70,18 @@ stripEnd = BS.reverse . trimR
 
 -- | connecting to the pop3 server specified by the hostname and port
 -- number
-connectPop3Port :: String -> PortNumber -> IO POP3Connection
+connectPop3Port :: String -> PortNumber -> IO (POP3Connection IO)
 connectPop3Port hostname port =
     handleToStream <$> (connectTo hostname (PortNumber port))
     >>= connectStream
 
 -- | connecting to the pop3 server specified by the hostname. 110 is
 -- used for the port number.
-connectPop3 :: String -> IO POP3Connection
+connectPop3 :: String -> IO (POP3Connection IO)
 connectPop3 = flip connectPop3Port 110
 
 -- | connecting to the pop3 server via a stream
-connectStream :: BSStream -> IO POP3Connection
+connectStream :: (Monad m, Functor m) => BSStream m -> m (POP3Connection m)
 connectStream st =
     do (resp, msg) <- response st
        when (resp == Err) $ fail "cannot connect"
@@ -90,7 +90,7 @@ connectStream st =
          then return $ newConnection st (BS.unpack code)
          else return $ newConnection st ""
 
-response :: BSStream -> IO (Response, ByteString)
+response :: (Monad m, Functor m) => BSStream m -> m (Response, ByteString)
 response st =
     do reply <- strip <$> bsGetLine st
        if (BS.pack "+OK") `BS.isPrefixOf` reply
@@ -98,7 +98,7 @@ response st =
          else return (Err, BS.drop 5 reply)
 
 -- | parse mutiline of response
-responseML :: POP3Connection -> IO (Response, ByteString)
+responseML :: (Monad m, Functor m) => POP3Connection m -> m (Response, ByteString)
 responseML conn =
     do reply <- strip <$> bsGetLine st
        if (BS.pack "+OK") `BS.isPrefixOf` reply
@@ -113,7 +113,7 @@ responseML conn =
 
 -- | sendCommand sends a pop3 command via a pop3 connection.  This
 -- action is too generic. Use more specific actions
-sendCommand :: POP3Connection -> Command -> IO (Response, ByteString)
+sendCommand :: (Monad m, Functor m) => POP3Connection m -> Command -> m (Response, ByteString)
 sendCommand conn (LIST Nothing) =
     bsPutCrLf (stream conn) (BS.pack "LIST") >> responseML conn
 sendCommand conn (UIDL Nothing) =
@@ -159,92 +159,92 @@ sendCommand conn command =
                          (RETR _) -> error "BUG: RETR should not get matched here"
                          (TOP _ _) -> error "BUG: TOP should not get matched here"
 
-user :: POP3Connection -> String -> IO ()
+user :: (Monad m, Functor m) => POP3Connection m -> String -> m ()
 user conn name = do (resp, _) <- sendCommand conn (USER name)
                     when (resp == Err) $ fail "cannot send user name"
 
-pass :: POP3Connection -> String -> IO ()
+pass :: (Monad m, Functor m) => POP3Connection m -> String -> m ()
 pass conn pwd = do (resp, _) <- sendCommand conn (PASS pwd)
                    when (resp == Err) $ fail "cannot send password"
 
-userPass :: POP3Connection -> A.UserName -> A.Password -> IO ()
+userPass :: (Monad m, Functor m) => POP3Connection m -> A.UserName -> A.Password -> m ()
 userPass conn name pwd = user conn name >> pass conn pwd
 
-auth :: POP3Connection -> A.AuthType -> A.UserName -> A.Password
-     -> IO ()
+auth :: (Monad m, Functor m) => POP3Connection m -> A.AuthType -> A.UserName -> A.Password
+     -> m ()
 auth conn at username password =
     do (resp, msg) <- sendCommand conn (AUTH at username password)
        unless (resp == Ok) $ fail $ "authentication failed: " ++ BS.unpack msg
 
-apop :: POP3Connection -> String -> String -> IO ()
+apop :: (Monad m, Functor m) => POP3Connection m -> String -> String -> m ()
 apop conn name pwd =
     do (resp, msg) <- sendCommand conn (APOP name pwd)
        when (resp == Err) $ fail $ "authentication failed: " ++ BS.unpack msg
 
-stat :: POP3Connection -> IO (Int, Int)
+stat :: (Monad m, Functor m) => POP3Connection m -> m (Int, Int)
 stat conn = do (resp, msg) <- sendCommand conn STAT
                when (resp == Err) $ fail "cannot get stat info"
                let (nn, mm) = BS.span (/=' ') msg
                return (read $ BS.unpack nn, read $ BS.unpack $ BS.tail mm)
 
-dele :: POP3Connection -> Int -> IO ()
+dele :: (Monad m, Functor m) => POP3Connection m -> Int -> m ()
 dele conn n = do (resp, _) <- sendCommand conn (DELE n)
                  when (resp == Err) $ fail "cannot delete"
 
-retr :: POP3Connection -> Int -> IO ByteString
+retr :: (Monad m, Functor m) => POP3Connection m -> Int -> m ByteString
 retr conn n = do (resp, msg) <- sendCommand conn (RETR n)
                  when (resp == Err) $ fail "cannot retrieve"
                  return $ BS.tail $ BS.dropWhile (/='\n') msg
 
-top :: POP3Connection -> Int -> Int -> IO ByteString
+top :: (Monad m, Functor m) => POP3Connection m -> Int -> Int -> m ByteString
 top conn n m = do (resp, msg) <- sendCommand conn (TOP n m)
                   when (resp == Err) $ fail "cannot retrieve"
                   return $ BS.tail $ BS.dropWhile (/='\n') msg
 
-rset :: POP3Connection -> IO ()
+rset :: (Monad m, Functor m) => POP3Connection m -> m ()
 rset conn = do (resp, _) <- sendCommand conn RSET
                when (resp == Err) $ fail "cannot reset"
 
-allList :: POP3Connection -> IO [(Int, Int)]
+allList :: (Monad m, Functor m) => POP3Connection m -> m [(Int, Int)]
 allList conn = do (resp, lst) <- sendCommand conn (LIST Nothing)
                   when (resp == Err) $ fail "cannot retrieve the list"
                   return $ map f $ tail $ BS.lines lst
     where f s = let (n1, n2) = BS.span (/=' ') s
                 in (read $ BS.unpack n1, read $ BS.unpack $ BS.tail n2)
 
-list :: POP3Connection -> Int -> IO Int
+list :: (Monad m, Functor m) => POP3Connection m -> Int -> m Int
 list conn n = do (resp, lst) <- sendCommand conn (LIST (Just n))
                  when (resp == Err) $ fail "cannot retrieve the list"
                  let (_, n2) = BS.span (/=' ') lst
                  return $ read $ BS.unpack $ BS.tail n2
 
-allUIDLs :: POP3Connection -> IO [(Int, ByteString)]
+allUIDLs :: (Monad m, Functor m) => POP3Connection m -> m [(Int, ByteString)]
 allUIDLs conn = do (resp, lst) <- sendCommand conn (UIDL Nothing)
                    when (resp == Err) $ fail "cannot retrieve the uidl list"
                    return $ map f $ tail $ BS.lines lst
     where f s = let (n1, n2) = BS.span (/=' ') s in (read $ BS.unpack n1, n2)
 
-uidl :: POP3Connection -> Int -> IO ByteString
+uidl :: (Monad m, Functor m) => POP3Connection m -> Int -> m ByteString
 uidl conn n = do (resp, msg) <- sendCommand conn (UIDL (Just n))
                  when (resp == Err) $ fail "cannot retrieve the uidl data"
                  return $ BS.tail $ BS.dropWhile (/=' ') msg
 
-closePop3 :: POP3Connection -> IO ()
+closePop3 :: (Monad m, Functor m) => POP3Connection m -> m ()
 closePop3 c = do sendCommand c QUIT
                  bsClose (stream c)
 
-doPop3Port :: String -> PortNumber -> (POP3Connection -> IO a) -> IO a
+doPop3Port :: String -> PortNumber -> (POP3Connection IO -> IO a) -> IO a
 doPop3Port host port execution =
     bracket (connectPop3Port host port) closePop3 execution
 
-doPop3 :: String -> (POP3Connection -> IO a) -> IO a
+doPop3 :: String -> (POP3Connection IO -> IO a) -> IO a
 doPop3 host execution = doPop3Port host 110 execution
 
-doPop3Stream :: BSStream -> (POP3Connection -> IO b) -> IO b
+doPop3Stream :: BSStream IO -> (POP3Connection IO -> IO b) -> IO b
 doPop3Stream conn execution = bracket (connectStream conn) closePop3 execution
 
 crlf :: BS.ByteString
 crlf = BS.pack "\r\n"
 
-bsPutCrLf :: BSStream -> ByteString -> IO ()
+bsPutCrLf :: Monad m => BSStream m -> ByteString -> m ()
 bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
