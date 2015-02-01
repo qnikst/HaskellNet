@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 module Network.HaskellNet.IMAP.Connection
     ( IMAPConnection
     , withNextCommandNum
@@ -38,55 +39,70 @@ import Network.HaskellNet.IMAP.Types
     , UID
     )
 
-data IMAPConnection =
-    IMAPC { stream :: BSStream
-          , mboxInfo :: IORef MailboxInfo
-          , nextCommandNum :: IORef Int
+data IMAPConnection m =
+    IMAPC { stream :: BSStream m
+          , mailboxManager :: MailboxManager m
           }
 
-newConnection :: BSStream -> IO IMAPConnection
-newConnection s = IMAPC s <$> (newIORef emptyMboxInfo) <*> (newIORef 0)
+data MailboxManager m =
+    MBManager { _mailboxGetMailboxInfo :: m MailboxInfo
+              , _mailboxName :: m MailboxName
+              , _mailboxExists :: m Integer
+              , _mailboxRecent :: m Integer
+              , _mailboxFlags  :: m [Flag]
+              , _mailboxPermanentFlags :: m [Flag]
+              , _mailboxIsWritable :: m Bool
+              , _mailboxIsFlagWritable :: m Bool
+              , _mailboxUidNext :: m UID
+              , _mailboxUidValidity :: m UID
+              , _mailboxWithNextCommandNum :: forall a. (Int -> m a) -> m (a, Int)
+              , _mailboxSetMailboxInfo :: MailboxInfo -> m ()
+              , _mailboxModifyMailboxInfo :: (MailboxInfo -> MailboxInfo) -> m ()
+              , _mailboxNextCommandNum :: m Int
+              }
 
-getMailboxInfo :: IMAPConnection -> IO MailboxInfo
-getMailboxInfo c = readIORef $ mboxInfo c
+getMailboxInfo :: IMAPConnection m -> m MailboxInfo
+getMailboxInfo c = _mailboxGetMailboxInfo (mailboxManager c)
 
-mailbox :: IMAPConnection -> IO MailboxName
-mailbox c = _mailbox <$> getMailboxInfo c
+mailbox :: IMAPConnection m -> m MailboxName
+mailbox c = _mailboxName (mailboxManager c)
 
-exists :: IMAPConnection -> IO Integer
-exists c = _exists <$> getMailboxInfo c
+exists :: IMAPConnection m -> m Integer
+exists c = _mailboxExists (mailboxManager c)
 
-recent :: IMAPConnection -> IO Integer
-recent c = _recent <$> getMailboxInfo c
+recent :: IMAPConnection m -> m Integer
+recent c = _mailboxRecent (mailboxManager c)
 
-flags :: IMAPConnection -> IO [Flag]
-flags c = _flags <$> getMailboxInfo c
+flags :: IMAPConnection m -> m [Flag]
+flags c = _mailboxFlags (mailboxManager c)
 
-permanentFlags :: IMAPConnection -> IO [Flag]
-permanentFlags c = _permanentFlags <$> getMailboxInfo c
+permanentFlags :: IMAPConnection m -> m [Flag]
+permanentFlags c = _mailboxPermanentFlags (mailboxManager c)
 
-isWritable :: IMAPConnection -> IO Bool
-isWritable c = _isWritable <$> getMailboxInfo c
+isWritable :: IMAPConnection m -> m Bool
+isWritable c = _mailboxIsWritable (mailboxManager c)
 
-isFlagWritable :: IMAPConnection -> IO Bool
-isFlagWritable c = _isFlagWritable <$> getMailboxInfo c
+isFlagWritable :: IMAPConnection m -> m Bool
+isFlagWritable c = _mailboxIsFlagWritable (mailboxManager c)
 
-uidNext :: IMAPConnection -> IO UID
-uidNext c = _uidNext <$> getMailboxInfo c
+uidNext :: IMAPConnection m -> m UID
+uidNext c = _mailboxUidNext (mailboxManager c)
 
-uidValidity :: IMAPConnection -> IO UID
-uidValidity c = _uidValidity <$> getMailboxInfo c
+uidValidity :: IMAPConnection m -> m UID
+uidValidity c = _mailboxUidValidity (mailboxManager c)
 
-withNextCommandNum :: IMAPConnection -> (Int -> IO a) -> IO (a, Int)
-withNextCommandNum c act = do
-  let ref = nextCommandNum c
-  num <- readIORef ref
-  result <- act num
-  modifyIORef ref (+1)
-  return (result, num)
+withNextCommandNum :: IMAPConnection m -> (Int -> m a) -> m (a, Int)
+withNextCommandNum c = _mailboxWithNextCommandNum (mailboxManager c)
 
-setMailboxInfo :: IMAPConnection -> MailboxInfo -> IO ()
-setMailboxInfo c = writeIORef (mboxInfo c)
+setMailboxInfo :: IMAPConnection m -> MailboxInfo -> m ()
+setMailboxInfo c = _mailboxSetMailboxInfo (mailboxManager c)
 
-modifyMailboxInfo :: IMAPConnection -> (MailboxInfo -> MailboxInfo) -> IO ()
-modifyMailboxInfo c f = modifyIORef (mboxInfo c) f
+modifyMailboxInfo :: IMAPConnection m -> (MailboxInfo -> MailboxInfo) -> m ()
+modifyMailboxInfo c = _mailboxModifyMailboxInfo (mailboxManager c)
+
+-- IO Monad specific.
+newConnection :: BSStream IO -> IO (IMAPConnection IO)
+newConnection s = IMAPC s <$> (ioRefMailboxManager <$> (newIORef emptyMboxInfo) <*> (newIORef 0))
+
+ioRefMailboxManager :: IORef MailboxInfo -> IORef Int -> MailboxManager IO
+ioRefMailboxManager mboxInfoIORef nextCommandNumIORef = undefined
