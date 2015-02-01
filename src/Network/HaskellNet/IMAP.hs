@@ -1,5 +1,6 @@
 module Network.HaskellNet.IMAP
-    ( connectIMAP, connectIMAPPort, connectStream
+    ( IMAP, runIMAP
+    , connectIMAP, connectIMAPPort, connectStream
       -- * IMAP commands
       -- ** any state commands
     , noop, capability, logout
@@ -44,6 +45,11 @@ import Text.Packrat.Parse (Result)
 
 import           Control.Monad.Error
 import           Control.Monad.Reader
+
+type IMAP m a = ReaderT (IMAPConnection m) (ErrorT String m) a
+
+runIMAP :: Monad m => IMAPConnection m -> IMAP m a -> m (Either String a)
+runIMAP conn actions = runErrorT $ runReaderT actions conn
 
 -- suffixed by `s'
 data SearchQuery = ALLs
@@ -133,12 +139,13 @@ connectStream s =
 
 ----------------------------------------------------------------------
 -- normal send commands
-sendCommand' :: (Monad m, Functor m) => IMAPConnection m -> String -> m (ByteString, Int)
-sendCommand' c cmdstr = do
-  (_, num) <- withNextCommandNum c $ \num -> bsPutCrLf (stream c) $
-              BS.pack $ show6 num ++ " " ++ cmdstr
-  resp <- getResponse (stream c)
-  return (resp, num)
+sendCommand' :: (Monad m, Functor m) => String -> IMAP m (ByteString, Int)
+sendCommand' cmdstr = do
+    c <- ask
+    (_, num) <- lift $ lift $ withNextCommandNum c $ \num -> bsPutCrLf (stream c) $
+                BS.pack $ show6 num ++ " " ++ cmdstr
+    resp <- lift $ lift $ getResponse (stream c)
+    return (resp, num)
 
 show6 :: (Ord a, Num a, Show a) => a -> String
 show6 n | n > 100000 = show n
@@ -148,14 +155,14 @@ show6 n | n > 100000 = show n
         | n > 10     = "0000" ++ show n
         | otherwise  = "00000" ++ show n
 
-sendCommand :: (Monad m, Functor m) => IMAPConnection m -> String
+sendCommand :: (Monad m, Functor m) => String
             -> (RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, v))
-            -> m v
-sendCommand imapc cmdstr pFunc =
-    do (buf, num) <- sendCommand' imapc cmdstr
+            -> IMAP m v
+sendCommand cmdstr pFunc =
+    do (buf, num) <- sendCommand' cmdstr
        let (resp, mboxUp, value) = eval pFunc (show6 num) buf
        case resp of
-         OK _ _        -> do mboxUpdate imapc mboxUp
+         OK _ _        -> do mboxUpdate mboxUp
                              return value
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
@@ -185,129 +192,140 @@ getResponse s = unlinesCRLF <$> getLs
           getLitLen = read . BS.unpack . snd . BS.spanEnd isDigit . BS.init
           isTagged l = BS.head l == '*' && BS.head (BS.tail l) == ' '
 
-mboxUpdate :: Monad m => IMAPConnection m -> MboxUpdate -> m ()
-mboxUpdate conn (MboxUpdate exists' recent') = do
-  when (isJust exists') $
-       modifyMailboxInfo conn $ \mbox -> mbox { _exists = fromJust exists' }
+mboxUpdate :: Monad m => MboxUpdate -> IMAP m ()
+mboxUpdate (MboxUpdate exists' recent') = do
+    conn <- ask
+    lift $ lift $ do
+        when (isJust exists') $
+            modifyMailboxInfo conn $ \mbox -> mbox { _exists = fromJust exists' }
 
-  when (isJust recent') $
-       modifyMailboxInfo conn $ \mbox -> mbox { _recent = fromJust recent' }
+        when (isJust recent') $
+            modifyMailboxInfo conn $ \mbox -> mbox { _recent = fromJust recent' }
 
 ----------------------------------------------------------------------
 -- IMAP commands
 --
 
-noop :: (Monad m, Functor m) => IMAPConnection m -> m ()
-noop conn = sendCommand conn "NOOP" pNone
+noop :: (Monad m, Functor m) => IMAP m ()
+noop = sendCommand "NOOP" pNone
 
-capability :: (Monad m, Functor m) => IMAPConnection m -> m [String]
-capability conn = sendCommand conn "CAPABILITY" pCapability
+capability :: (Monad m, Functor m) => IMAP m [String]
+capability = sendCommand "CAPABILITY" pCapability
 
-logout :: Monad m => IMAPConnection m -> m ()
-logout c = do bsPutCrLf (stream c) $ BS.pack "a0001 LOGOUT"
-              bsClose (stream c)
+logout :: Monad m => IMAP m ()
+logout = do strm <- asks stream
+            lift $ lift $ do
+                bsPutCrLf strm $ BS.pack "a0001 LOGOUT"
+                bsClose strm
 
-login :: (Monad m, Functor m) => IMAPConnection m -> A.UserName -> A.Password -> m ()
-login conn username password = sendCommand conn ("LOGIN " ++ (escapeLogin username) ++ " " ++ (escapeLogin password))
-                               pNone
+login :: (Monad m, Functor m) => A.UserName -> A.Password -> IMAP m ()
+login username password = sendCommand ("LOGIN " ++ (escapeLogin username) ++ " " ++ (escapeLogin password))
+                          pNone
 
-authenticate :: (Monad m, Functor m) => IMAPConnection m -> A.AuthType
-             -> A.UserName -> A.Password -> m ()
-authenticate conn A.LOGIN username password =
-    do (_, num) <- sendCommand' conn "AUTHENTICATE LOGIN"
-       bsPutCrLf (stream conn) $ BS.pack userB64
-       bsGetLine (stream conn)
-       bsPutCrLf (stream conn) $ BS.pack passB64
-       buf <- getResponse $ stream conn
+authenticate :: (Monad m, Functor m) => A.AuthType
+             -> A.UserName -> A.Password -> IMAP m ()
+authenticate A.LOGIN username password =
+    do (_, num) <- sendCommand' "AUTHENTICATE LOGIN"
+       strm <- asks stream
+       buf <- lift $ lift $ do
+            bsPutCrLf strm $ BS.pack userB64
+            bsGetLine strm
+            bsPutCrLf strm $ BS.pack passB64
+            getResponse strm
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
-         OK _ _        -> do mboxUpdate conn $ mboxUp
+         OK _ _        -> do mboxUpdate mboxUp
                              return value
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
     where (userB64, passB64) = A.login username password
-authenticate conn at username password =
-    do (c, num) <- sendCommand' conn $ "AUTHENTICATE " ++ show at
+authenticate at username password =
+    do (c, num) <- sendCommand' $ "AUTHENTICATE " ++ show at
+       strm <- asks stream
        let challenge =
                if BS.take 2 c == BS.pack "+ "
                then A.b64Decode $ BS.unpack $ head $
                     dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
                else ""
-       bsPutCrLf (stream conn) $ BS.pack $
+       buf <- lift $ lift $ do
+           bsPutCrLf strm $ BS.pack $
                  A.auth at challenge username password
-       buf <- getResponse $ stream conn
+           getResponse $ strm
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
-         OK _ _        -> do mboxUpdate conn $ mboxUp
+         OK _ _        -> do mboxUpdate mboxUp
                              return value
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
 
-_select :: (Monad m, Functor m) => String -> IMAPConnection m -> String -> m ()
-_select cmd conn mboxName =
-    do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
-       setMailboxInfo conn $ mbox' { _mailbox = mboxName }
+_select :: (Monad m, Functor m) => String -> String -> IMAP m ()
+_select cmd mboxName =
+    do mbox' <- sendCommand (cmd ++ mboxName) pSelect
+       conn <- ask
+       lift $ lift $ setMailboxInfo conn $ mbox' { _mailbox = mboxName }
 
-select :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> m ()
+select :: (Monad m, Functor m) => MailboxName -> IMAP m ()
 select = _select "SELECT "
 
-examine :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> m ()
+examine :: (Monad m, Functor m) => MailboxName -> IMAP m ()
 examine = _select "EXAMINE "
 
-create :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> m ()
-create conn mboxname = sendCommand conn ("CREATE " ++ mboxname) pNone
+create :: (Monad m, Functor m) => MailboxName -> IMAP m ()
+create mboxname = sendCommand ("CREATE " ++ mboxname) pNone
 
-delete :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> m ()
-delete conn mboxname = sendCommand conn ("DELETE " ++ mboxname) pNone
+delete :: (Monad m, Functor m) => MailboxName -> IMAP m ()
+delete mboxname = sendCommand ("DELETE " ++ mboxname) pNone
 
-rename :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> MailboxName -> m ()
-rename conn mboxorg mboxnew =
-    sendCommand conn ("RENAME " ++ mboxorg ++ " " ++ mboxnew) pNone
+rename :: (Monad m, Functor m) => MailboxName -> MailboxName -> IMAP m ()
+rename mboxorg mboxnew =
+    sendCommand ("RENAME " ++ mboxorg ++ " " ++ mboxnew) pNone
 
-subscribe :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> m ()
-subscribe conn mboxname = sendCommand conn ("SUBSCRIBE " ++ mboxname) pNone
+subscribe :: (Monad m, Functor m) => MailboxName -> IMAP m ()
+subscribe mboxname = sendCommand ("SUBSCRIBE " ++ mboxname) pNone
 
-unsubscribe :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> m ()
-unsubscribe conn mboxname = sendCommand conn ("UNSUBSCRIBE " ++ mboxname) pNone
+unsubscribe :: (Monad m, Functor m) => MailboxName -> IMAP m ()
+unsubscribe mboxname = sendCommand ("UNSUBSCRIBE " ++ mboxname) pNone
 
-list :: (Monad m, Functor m) => IMAPConnection m -> m [([Attribute], MailboxName)]
-list conn = (map (\(a, _, m) -> (a, m))) <$> listFull conn "\"\"" "*"
+list :: (Monad m, Functor m) => IMAP m [([Attribute], MailboxName)]
+list = (map (\(a, _, m) -> (a, m))) <$> listFull "\"\"" "*"
 
-lsub :: (Monad m, Functor m) => IMAPConnection m -> m [([Attribute], MailboxName)]
-lsub conn = (map (\(a, _, m) -> (a, m))) <$> lsubFull conn "\"\"" "*"
+lsub :: (Monad m, Functor m) => IMAP m [([Attribute], MailboxName)]
+lsub = (map (\(a, _, m) -> (a, m))) <$> lsubFull "\"\"" "*"
 
-listFull :: (Monad m, Functor m) => IMAPConnection m -> String -> String
-         -> m [([Attribute], String, MailboxName)]
-listFull conn ref pat = sendCommand conn (unwords ["LIST", ref, pat]) pList
+listFull :: (Monad m, Functor m) => String -> String
+         -> IMAP m [([Attribute], String, MailboxName)]
+listFull ref pat = sendCommand (unwords ["LIST", ref, pat]) pList
 
-lsubFull :: (Monad m, Functor m) => IMAPConnection m -> String -> String
-         -> m [([Attribute], String, MailboxName)]
-lsubFull conn ref pat = sendCommand conn (unwords ["LSUB", ref, pat]) pLsub
+lsubFull :: (Monad m, Functor m) => String -> String
+         -> IMAP m [([Attribute], String, MailboxName)]
+lsubFull ref pat = sendCommand (unwords ["LSUB", ref, pat]) pLsub
 
-status :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> [MailboxStatus]
-       -> m [(MailboxStatus, Integer)]
-status conn mbox stats =
+status :: (Monad m, Functor m) => MailboxName -> [MailboxStatus]
+       -> IMAP m [(MailboxStatus, Integer)]
+status mbox stats =
     let cmd = "STATUS " ++ mbox ++ " (" ++ (unwords $ map show stats) ++ ")"
-    in sendCommand conn cmd pStatus
+    in sendCommand cmd pStatus
 
-append :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> ByteString -> m ()
-append conn mbox mailData = appendFull conn mbox mailData [] Nothing
+append :: (Monad m, Functor m) => MailboxName -> ByteString -> IMAP m ()
+append mbox mailData = appendFull mbox mailData [] Nothing
 
-appendFull :: (Monad m, Functor m) => IMAPConnection m -> MailboxName -> ByteString
-           -> [Flag] -> Maybe CalendarTime -> m ()
-appendFull conn mbox mailData flags' time =
-    do (buf, num) <- sendCommand' conn
+appendFull :: (Monad m, Functor m) => MailboxName -> ByteString
+           -> [Flag] -> Maybe CalendarTime -> IMAP m ()
+appendFull mbox mailData flags' time =
+    do (buf, num) <- sendCommand'
                 (unwords ["APPEND", mbox
                          , fstr, tstr,  "{" ++ show len ++ "}"])
+       strm <- asks stream
        unless (BS.null buf || (BS.head buf /= '+')) $
               fail "illegal server response"
-       mapM_ (bsPutCrLf $ stream conn) mailLines
-       buf2 <- getResponse $ stream conn
+       buf2 <- lift $ lift $ do
+           mapM_ (bsPutCrLf strm) mailLines
+           getResponse strm
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf2
        case resp of
-         OK _ _ -> mboxUpdate conn mboxUp
+         OK _ _ -> mboxUpdate mboxUp
          NO _ msg -> fail ("NO: "++msg)
          BAD _ msg -> fail ("BAD: "++msg)
          PREAUTH _ msg -> fail ("PREAUTH: "++msg)
@@ -316,93 +334,94 @@ appendFull conn mbox mailData flags' time =
           tstr      = maybe "" show time
           fstr      = unwords $ map show flags'
 
-check :: (Monad m, Functor m) => IMAPConnection m -> m ()
-check conn = sendCommand conn "CHECK" pNone
+check :: (Monad m, Functor m) => IMAP m ()
+check = sendCommand "CHECK" pNone
 
-close :: (Monad m, Functor m) => IMAPConnection m -> m ()
-close conn =
-    do sendCommand conn "CLOSE" pNone
-       setMailboxInfo conn emptyMboxInfo
+close :: (Monad m, Functor m) => IMAP m ()
+close =
+    do sendCommand "CLOSE" pNone
+       conn <- ask
+       lift $ lift $ setMailboxInfo conn emptyMboxInfo
 
-expunge :: (Monad m, Functor m) => IMAPConnection m -> m [Integer]
-expunge conn = sendCommand conn "EXPUNGE" pExpunge
+expunge :: (Monad m, Functor m) => IMAP m [Integer]
+expunge = sendCommand "EXPUNGE" pExpunge
 
-search :: (Monad m, Functor m) => IMAPConnection m -> [SearchQuery] -> m [UID]
-search conn queries = searchCharset conn "" queries
+search :: (Monad m, Functor m) => [SearchQuery] -> IMAP m [UID]
+search queries = searchCharset "" queries
 
-searchCharset :: (Monad m, Functor m) => IMAPConnection m -> Charset -> [SearchQuery]
-              -> m [UID]
-searchCharset conn charset queries =
-    sendCommand conn ("UID SEARCH "
+searchCharset :: (Monad m, Functor m) => Charset -> [SearchQuery]
+              -> IMAP m [UID]
+searchCharset charset queries =
+    sendCommand ("UID SEARCH "
                     ++ (if not . null $ charset
                            then charset ++ " "
                            else "")
                     ++ unwords (map show queries)) pSearch
 
-fetch :: (Monad m, Functor m) => IMAPConnection m -> UID -> m ByteString
-fetch conn uid =
-    do lst <- fetchByString conn uid "BODY[]"
+fetch :: (Monad m, Functor m) => UID -> IMAP m ByteString
+fetch uid =
+    do lst <- fetchByString uid "BODY[]"
        return $ maybe BS.empty BS.pack $ lookup' "BODY[]" lst
 
-fetchHeader :: (Monad m, Functor m) => IMAPConnection m -> UID -> m ByteString
-fetchHeader conn uid =
-    do lst <- fetchByString conn uid "BODY[HEADER]"
+fetchHeader :: (Monad m, Functor m) => UID -> IMAP m ByteString
+fetchHeader uid =
+    do lst <- fetchByString uid "BODY[HEADER]"
        return $ maybe BS.empty BS.pack $ lookup' "BODY[HEADER]" lst
 
-fetchSize :: (Monad m, Functor m) => IMAPConnection m -> UID -> m Int
-fetchSize conn uid =
-    do lst <- fetchByString conn uid "RFC822.SIZE"
+fetchSize :: (Monad m, Functor m) => UID -> IMAP m Int
+fetchSize uid =
+    do lst <- fetchByString uid "RFC822.SIZE"
        return $ maybe 0 read $ lookup' "RFC822.SIZE" lst
 
-fetchHeaderFields :: (Monad m, Functor m) => IMAPConnection m
-                  -> UID -> [String] -> m ByteString
-fetchHeaderFields conn uid hs =
-    do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS "++unwords hs++"]")
+fetchHeaderFields :: (Monad m, Functor m) =>
+                  UID -> [String] -> IMAP m ByteString
+fetchHeaderFields uid hs =
+    do lst <- fetchByString uid ("BODY[HEADER.FIELDS "++unwords hs++"]")
        return $ maybe BS.empty BS.pack $
               lookup' ("BODY[HEADER.FIELDS "++unwords hs++"]") lst
 
-fetchHeaderFieldsNot :: (Monad m, Functor m) => IMAPConnection m
-                     -> UID -> [String] -> m ByteString
-fetchHeaderFieldsNot conn uid hs =
+fetchHeaderFieldsNot :: (Monad m, Functor m) =>
+                     UID -> [String] -> IMAP m ByteString
+fetchHeaderFieldsNot uid hs =
     do let fetchCmd = "BODY[HEADER.FIELDS.NOT "++unwords hs++"]"
-       lst <- fetchByString conn uid fetchCmd
+       lst <- fetchByString uid fetchCmd
        return $ maybe BS.empty BS.pack $ lookup' fetchCmd lst
 
-fetchFlags :: (Monad m, Functor m) => IMAPConnection m -> UID -> m [Flag]
-fetchFlags conn uid =
-    do lst <- fetchByString conn uid "FLAGS"
+fetchFlags :: (Monad m, Functor m) => UID -> IMAP m [Flag]
+fetchFlags uid =
+    do lst <- fetchByString uid "FLAGS"
        return $ getFlags $ lookup' "FLAGS" lst
     where getFlags Nothing  = []
           getFlags (Just s) = eval' dvFlags "" s
 
-fetchR :: (Monad m, Functor m) => IMAPConnection m -> (UID, UID)
-       -> m [(UID, ByteString)]
-fetchR conn r =
-    do lst <- fetchByStringR conn r "BODY[]"
+fetchR :: (Monad m, Functor m) => (UID, UID)
+       -> IMAP m [(UID, ByteString)]
+fetchR r =
+    do lst <- fetchByStringR r "BODY[]"
        return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $
                                        lookup' "BODY[]" vs)) lst
-fetchByString :: (Monad m, Functor m) => IMAPConnection m -> UID -> String
-              -> m [(String, String)]
-fetchByString conn uid command =
-    do lst <- fetchCommand conn ("UID FETCH "++show uid++" "++command) id
+fetchByString :: (Monad m, Functor m) => UID -> String
+              -> IMAP m [(String, String)]
+fetchByString uid command =
+    do lst <- fetchCommand ("UID FETCH "++show uid++" "++command) id
        return $ snd $ head lst
 
-fetchByStringR :: (Monad m, Functor m) => IMAPConnection m -> (UID, UID) -> String
-               -> m [(UID, [(String, String)])]
-fetchByStringR conn (s, e) command =
-    fetchCommand conn ("UID FETCH "++show s++":"++show e++" "++command) proc
+fetchByStringR :: (Monad m, Functor m) => (UID, UID) -> String
+               -> IMAP m [(UID, [(String, String)])]
+fetchByStringR (s, e) command =
+    fetchCommand ("UID FETCH "++show s++":"++show e++" "++command) proc
     where proc (n, ps) =
               (maybe (toEnum (fromIntegral n)) read (lookup' "UID" ps), ps)
 
-fetchCommand :: (Monad m, Functor m) => IMAPConnection m -> String
-             -> ((Integer, [(String, String)]) -> b) -> m [b]
-fetchCommand conn command proc =
-    (map proc) <$> sendCommand conn command pFetch
+fetchCommand :: (Monad m, Functor m) => String
+             -> ((Integer, [(String, String)]) -> b) -> IMAP m [b]
+fetchCommand command proc =
+    (map proc) <$> sendCommand command pFetch
 
-storeFull :: (Monad m, Functor m) => IMAPConnection m -> String -> FlagsQuery -> Bool
-          -> m [(UID, [Flag])]
-storeFull conn uidstr query isSilent =
-    fetchCommand conn ("UID STORE " ++ uidstr ++ " " ++ flgs query) procStore
+storeFull :: (Monad m, Functor m) => String -> FlagsQuery -> Bool
+          -> IMAP m [(UID, [Flag])]
+storeFull uidstr query isSilent =
+    fetchCommand ("UID STORE " ++ uidstr ++ " " ++ flgs query) procStore
     where fstrs fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
           toFStr s fstrs' =
               s ++ (if isSilent then ".SILENT" else "") ++ " " ++ fstrs'
@@ -414,15 +433,15 @@ storeFull conn uidstr query isSilent =
                               ,maybe [] (eval' dvFlags "") (lookup' "FLAG" ps))
 
 
-store :: (Monad m, Functor m) => IMAPConnection m -> UID -> FlagsQuery -> m ()
-store conn i q = storeFull conn (show i) q True >> return ()
+store :: (Monad m, Functor m) => UID -> FlagsQuery -> IMAP m ()
+store i q = storeFull (show i) q True >> return ()
 
-copyFull :: (Monad m, Functor m) => IMAPConnection m -> String -> String -> m ()
-copyFull conn uidStr mbox =
-    sendCommand conn ("UID COPY " ++ uidStr ++ " " ++ mbox) pNone
+copyFull :: (Monad m, Functor m) => String -> String -> IMAP m ()
+copyFull uidStr mbox =
+    sendCommand ("UID COPY " ++ uidStr ++ " " ++ mbox) pNone
 
-copy :: (Monad m, Functor m) => IMAPConnection m -> UID -> MailboxName -> m ()
-copy conn uid mbox     = copyFull conn (show uid) mbox
+copy :: (Monad m, Functor m) => UID -> MailboxName -> IMAP m ()
+copy uid mbox     = copyFull (show uid) mbox
 
 ----------------------------------------------------------------------
 -- auxialiary functions
