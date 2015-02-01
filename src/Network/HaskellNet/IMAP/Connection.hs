@@ -58,7 +58,6 @@ data MailboxManager m =
               , _mailboxWithNextCommandNum :: forall a. (Int -> m a) -> m (a, Int)
               , _mailboxSetMailboxInfo :: MailboxInfo -> m ()
               , _mailboxModifyMailboxInfo :: (MailboxInfo -> MailboxInfo) -> m ()
-              , _mailboxNextCommandNum :: m Int
               }
 
 getMailboxInfo :: IMAPConnection m -> m MailboxInfo
@@ -102,7 +101,63 @@ modifyMailboxInfo c = _mailboxModifyMailboxInfo (mailboxManager c)
 
 -- IO Monad specific.
 newConnection :: BSStream IO -> IO (IMAPConnection IO)
-newConnection s = IMAPC s <$> (ioRefMailboxManager <$> (newIORef emptyMboxInfo) <*> (newIORef 0))
+newConnection s = IMAPC s <$> (mailboxManagerIORef <$> (newIORef emptyMboxInfo) <*> (newIORef 0))
 
-ioRefMailboxManager :: IORef MailboxInfo -> IORef Int -> MailboxManager IO
-ioRefMailboxManager mboxInfoIORef nextCommandNumIORef = undefined
+mailboxManagerIORef :: IORef MailboxInfo -> IORef Int -> MailboxManager IO
+mailboxManagerIORef mboxInfoIORef nextCommandNumIORef =
+        MBManager (getMailboxInfoIORef mboxInfoIORef)
+                  (mailboxIORef mboxInfoIORef)
+                  (existsIORef mboxInfoIORef)
+                  (recentIORef mboxInfoIORef)
+                  (flagsIORef mboxInfoIORef)
+                  (permanentFlagsIORef mboxInfoIORef)
+                  (isWritableIORef mboxInfoIORef)
+                  (isFlagWritableIORef mboxInfoIORef)
+                  (uidNextIORef mboxInfoIORef)
+                  (uidValidityIORef mboxInfoIORef)
+                  (withNextCommandNumIORef nextCommandNumIORef)
+                  (setMailboxInfoIORef mboxInfoIORef)
+                  (modifyMailboxInfoIORef mboxInfoIORef)
+
+getMailboxInfoIORef :: IORef MailboxInfo -> IO MailboxInfo
+getMailboxInfoIORef = readIORef
+
+mailboxIORef :: IORef MailboxInfo -> IO MailboxName
+mailboxIORef mboxInfo = _mailbox <$> getMailboxInfoIORef mboxInfo
+
+existsIORef :: IORef MailboxInfo -> IO Integer
+existsIORef mboxInfo = _exists <$> getMailboxInfoIORef mboxInfo
+
+recentIORef :: IORef MailboxInfo -> IO Integer
+recentIORef mboxInfo = _recent <$> getMailboxInfoIORef mboxInfo
+
+flagsIORef :: IORef MailboxInfo -> IO [Flag]
+flagsIORef mboxInfo = _flags <$> getMailboxInfoIORef mboxInfo
+
+permanentFlagsIORef :: IORef MailboxInfo -> IO [Flag]
+permanentFlagsIORef mboxInfo = _permanentFlags <$> getMailboxInfoIORef mboxInfo
+
+isWritableIORef :: IORef MailboxInfo -> IO Bool
+isWritableIORef mboxInfo = _isWritable <$> getMailboxInfoIORef mboxInfo
+
+isFlagWritableIORef :: IORef MailboxInfo -> IO Bool
+isFlagWritableIORef mboxInfo = _isFlagWritable <$> getMailboxInfoIORef mboxInfo
+
+uidNextIORef :: IORef MailboxInfo -> IO UID
+uidNextIORef mboxInfo = _uidNext <$> getMailboxInfoIORef mboxInfo
+
+uidValidityIORef :: IORef MailboxInfo -> IO UID
+uidValidityIORef mboxInfo = _uidValidity <$> getMailboxInfoIORef mboxInfo
+
+withNextCommandNumIORef :: IORef Int -> (Int -> IO a) -> IO (a, Int)
+withNextCommandNumIORef ref act = do
+  num <- readIORef ref
+  result <- act num
+  modifyIORef ref (+1)
+  return (result, num)
+
+setMailboxInfoIORef :: IORef MailboxInfo -> MailboxInfo -> IO ()
+setMailboxInfoIORef mboxInfo = writeIORef mboxInfo
+
+modifyMailboxInfoIORef :: IORef MailboxInfo -> (MailboxInfo -> MailboxInfo) -> IO ()
+modifyMailboxInfoIORef mboxInfo f = modifyIORef mboxInfo f
