@@ -7,38 +7,38 @@ module Network.HaskellNet.BSStream
     )
 where
 
-import Data.ByteString (ByteString)
+import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
-import System.IO
+import           System.IO
+import           Control.Monad (when)
 
 -- |A byte string stream.
-data BSStream =
-    BSStream { bsGetLine :: IO ByteString
+data BSStream m =
+    BSStream { bsGetLine :: m ByteString
              -- ^Read a line from the stream.  Should return the line
              -- which was read, including the newline.
-             , bsGet :: Int -> IO ByteString
+             , bsGet :: Int -> m ByteString
              -- ^Read the specified number of bytes from the stream.
              -- Should block until the requested bytes can be read.
-             , bsPut :: ByteString -> IO ()
+             , bsPut :: ByteString -> m ()
              -- ^Write the specified byte string to the stream.
              -- Should flush the stream after writing.
-             , bsFlush :: IO ()
+             , bsFlush :: m ()
              -- ^Flush the stream.
-             , bsClose :: IO ()
+             , bsClose :: m ()
              -- ^Close the stream.
-             , bsIsOpen :: IO Bool
+             , bsIsOpen :: m Bool
              -- ^Is the stream open?
              }
 
--- |Build a byte string stream which operates on a 'Handle'.
-handleToStream :: Handle -> BSStream
+handleToStream :: Handle -> BSStream IO
 handleToStream h =
     BSStream { bsGetLine = BS.hGetLine h
-             , bsGet = BS.hGet h
-             , bsPut = \s -> BS.hPut h s >> hFlush h
-             , bsFlush = hFlush h
-             , bsClose = do
-                 op <- hIsOpen h
-                 if op then (hClose h) else return ()
-             , bsIsOpen = hIsOpen h
-             }
+            , bsGet = BS.hGet h
+            , bsPut = \s -> BS.hPut h s >> hFlush h
+            , bsFlush = hFlush h
+            , bsClose = do
+                op <- hIsOpen h
+                when op $ hClose h
+            , bsIsOpen = hIsOpen h
+            }

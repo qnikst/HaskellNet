@@ -23,32 +23,37 @@ htmlBody     = "<html><head></head><body><h1>Hello <i>world!</i></h1></body></ht
 attachments  = [] -- example [("application/octet-stream", "/path/to/file1.tar.gz), ("application/pdf", "/path/to/file2.pdf")]
 
 -- | Send plain text mail
-example1 = runNewSMTP server $
-    sendPlainTextMail' to from subject plainBody
+example1 = doSMTP server $ \conn ->
+    runSMTP conn $
+        sendPlainTextMail to from subject plainBody
 
 -- | With custom port number
-example2 = runNewSMTPPort server port $
-    sendPlainTextMail' to from subject plainBody
+example2 = doSMTPPort server port $ \conn ->
+    runSMTP conn $
+        sendPlainTextMail to from subject plainBody
 
 -- | Manually open and close the connection
 example3 = do
     conn <- connectSMTP server
-    runSMTP conn $
-        sendPlainTextMail' to from subject plainBody
-    closeSMTP conn
+    runSMTP conn $ do
+        sendPlainTextMail to from subject plainBody
+        closeSMTP
 
 -- | Send mime mail
-example4 = runNewSMTP server $
-    sendMimeMail' to from subject plainBody htmlBody []
+example4 = doSMTP server $ \conn ->
+    runSMTP conn $
+        sendMimeMail to from subject plainBody htmlBody []
 
 -- | With attachments (modify the `attachments` binding)
-example5 = runNewSMTP server $
-    sendMimeMail' to from subject plainBody htmlBody attachments
+example5 = doSMTP server $ \conn ->
+    runSMTP conn $
+        sendMimeMail to from subject plainBody htmlBody attachments
 
 -- | With authentication
-example6 = runNewSMTP server $ do
-    authenticate' authType username password
-    sendMimeMail' to from subject plainBody htmlBody []
+example6 = doSMTP server $ \conn ->
+    runSMTP conn $ do
+        authenticate authType username password
+        sendMimeMail to from subject plainBody htmlBody []
 
 -- | Custom
 example7 = do
@@ -60,9 +65,10 @@ example7 = do
                         []
                         [("Subject", T.pack subject)]
                         [[htmlPart htmlBody, plainPart plainBody]]
-        newMail' <- lift $ lift $ addAttachments attachments newMail
-        renderedMail <- lift $ lift $ renderMail' newMail'
-        sendMail' from [to] (S.concat . B.toChunks $ renderedMail)
-    closeSMTP conn
+        renderedMail <- lift $ lift $ do
+            addAttachments attachments newMail
+              >>= renderMail'
+        sendMail from [to] (S.concat . B.toChunks $ renderedMail)
+        closeSMTP
 
 main = example1

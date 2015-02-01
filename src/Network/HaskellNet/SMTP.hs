@@ -64,15 +64,7 @@ module Network.HaskellNet.SMTP
     , sendMimeMail
       -- * Operations inside a SMTP monad
     , runSMTP
-    , runNewSMTP
-    , runNewSMTPPort
     , runSMTPStream
-    , sendCommand'
-    , closeSMTP'
-    , authenticate'
-    , sendMail'
-    , sendPlainTextMail'
-    , sendMimeMail'
     )
     where
 
@@ -84,7 +76,7 @@ import Network
 
 import Control.Applicative ((<$>))
 import Control.Exception
-import Control.Monad (unless)
+{-import Control.Monad (unless)-}
 
 import Data.Char (isDigit)
 
@@ -99,27 +91,6 @@ import qualified Data.Text as T
 
 import Control.Monad.Reader
 import Control.Monad.Error
-
--- The response field seems to be unused. It's saved at one place, but never
--- retrieved.
-data SMTPConnection = SMTPC { bsstream :: !BSStream, _response :: ![ByteString] }
-
-type SMTP a = ReaderT SMTPConnection (ErrorT String IO) a
-
-runSMTP :: SMTPConnection -> SMTP a -> IO (Either String a)
-runSMTP conn smtp = runErrorT $ runReaderT smtp conn
-
-runNewSMTP :: String -> SMTP a -> IO (Either String a)
-runNewSMTP host = runNewSMTPPort host 25
-
-runNewSMTPPort :: String -> PortNumber -> SMTP a -> IO (Either String a)
-runNewSMTPPort host port smtp = connectSMTPPort host port >>= \conn -> do
-    res <- runSMTP conn smtp
-    runSMTP conn closeSMTP' `catchError` const (return $ Left "")
-    return res
-
-runSMTPStream :: BSStream -> SMTP a -> IO (Either String a)
-runSMTPStream st smtp = connectStream st >>= flip runSMTP smtp
 
 data Command = HELO String
              | EHLO String
@@ -161,49 +132,41 @@ data Response = Ok
               | TransactionFailed
                 deriving (Show, Eq)
 
--- | connecting SMTP server with the specified name and port number.
-connectSMTPPort :: String     -- ^ name of the server
-                -> PortNumber -- ^ port number
-                -> IO SMTPConnection
-connectSMTPPort hostname port =
-    (handleToStream <$> connectTo hostname (PortNumber port))
-    >>= connectStream
+data SMTPConnection m = SMTPC { bsstream :: !(BSStream m), _response :: ![ByteString] }
 
--- | connecting SMTP server with the specified name and port 25.
-connectSMTP :: String     -- ^ name of the server
-            -> IO SMTPConnection
-connectSMTP = flip connectSMTPPort 25
+type SMTP m a = ReaderT (SMTPConnection m) (ErrorT String m) a
 
-tryCommand' :: Command -> Int -> ReplyCode -> SMTP ByteString
-tryCommand' cmd tries expectedReply = ask >>= \conn ->
-    lift $ lift $ tryCommand conn cmd tries expectedReply
+runSMTP :: Monad m => SMTPConnection m -> SMTP m a -> m (Either String a)
+runSMTP conn smtp = runErrorT $ runReaderT smtp conn
 
-tryCommand :: SMTPConnection -> Command -> Int -> ReplyCode
-           -> IO ByteString
-tryCommand conn cmd tries expectedReply = do
-  (code, msg) <- sendCommand conn cmd
-  case () of
-    _ | code == expectedReply   -> return msg
-    _ | tries > 1               ->
-          tryCommand conn cmd (tries - 1) expectedReply
-      | otherwise               -> do
-          bsClose (bsstream conn)
-          fail $ "cannot execute command " ++ show cmd ++
-                 ", expected reply code " ++ show expectedReply ++
-                 ", but received " ++ show code ++ " " ++ BS.unpack msg
+runSMTPStream :: MonadIO m => BSStream m -> SMTP m a -> m (Either String a)
+runSMTPStream st smtp = connectStream st >>= flip runSMTP smtp
+
+tryCommand :: Monad m => Command -> Int -> ReplyCode -> SMTP m ByteString
+tryCommand cmd tries expectedReply = do
+    (code, msg) <- sendCommand cmd
+    case () of
+        _ | code == expectedReply   -> return msg
+        _ | tries > 1               ->
+                tryCommand cmd (tries - 1) expectedReply
+            | otherwise               -> do
+                asks bsstream >>= lift. lift . bsClose
+                fail $ "cannot execute command " ++ show cmd ++
+                        ", expected reply code " ++ show expectedReply ++
+                        ", but received " ++ show code ++ " " ++ BS.unpack msg
 
 -- | create SMTPConnection from already connected Stream
-connectStream :: BSStream -> IO SMTPConnection
+connectStream :: MonadIO m => BSStream m -> m (SMTPConnection m)
 connectStream st =
     do (code1, _) <- parseResponse st
        unless (code1 == 220) $
               do bsClose st
                  fail "cannot connect to the server"
-       senderHost <- getHostName
-       msg <- tryCommand (SMTPC st []) (EHLO senderHost) 3 250
+       senderHost <- liftIO getHostName
+       Right msg <- runSMTP (SMTPC st []) $ tryCommand (EHLO senderHost) 3 250
        return (SMTPC st (tail $ BS.lines msg))
 
-parseResponse :: BSStream -> IO (ReplyCode, ByteString)
+parseResponse :: Monad m => BSStream m -> m (ReplyCode, ByteString)
 parseResponse st =
     do (code, bdy) <- readLines
        return (read $ BS.unpack code, BS.unlines bdy)
@@ -215,40 +178,42 @@ parseResponse st =
                             return (c2, BS.tail bdy:ls)
                     else return (c, [BS.tail bdy])
 
-
-sendCommand' :: Command -> SMTP (ReplyCode, ByteString)
-sendCommand' cmd = do
-        conn <- ask
-        lift $ lift $ sendCommand conn cmd
-
 -- | send a method to a server
-sendCommand :: SMTPConnection -> Command -> IO (ReplyCode, ByteString)
-sendCommand (SMTPC conn _) (DATA dat) =
-    do bsPutCrLf conn $ BS.pack "DATA"
-       (code, _) <- parseResponse conn
-       unless (code == 354) $ fail "this server cannot accept any data."
-       mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]
-       parseResponse conn
-    where sendLine = bsPutCrLf conn
-sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
-    do bsPutCrLf conn command
-       (_, _) <- parseResponse conn
-       bsPutCrLf conn $ BS.pack userB64
-       (_, _) <- parseResponse conn
-       bsPutCrLf conn $ BS.pack passB64
-       parseResponse conn
+sendCommand :: Monad m => Command -> SMTP m (ReplyCode, ByteString)
+sendCommand (DATA dat) =
+    do conn <- asks bsstream
+       lift $ lift $ do
+        bsPutCrLf conn $ BS.pack "DATA"
+        (code, _) <- parseResponse conn
+        unless (code == 354) $ fail "this server cannot accept any data."
+        mapM_ (sendLine conn) $ BS.lines dat ++ [BS.pack "."]
+        parseResponse conn
+    where sendLine = bsPutCrLf
+sendCommand (AUTH LOGIN username password) =
+    do conn <- asks bsstream
+       lift $ lift $ do
+        bsPutCrLf conn command
+        (_, _) <- parseResponse conn
+        bsPutCrLf conn $ BS.pack userB64
+        (_, _) <- parseResponse conn
+        bsPutCrLf conn $ BS.pack passB64
+        parseResponse conn
     where command = BS.pack "AUTH LOGIN"
           (userB64, passB64) = login username password
-sendCommand (SMTPC conn _) (AUTH at username password) =
-    do bsPutCrLf conn command
-       (code, msg) <- parseResponse conn
-       unless (code == 334) $ fail "authentication failed."
-       bsPutCrLf conn $ BS.pack $ auth at (BS.unpack msg) username password
-       parseResponse conn
+sendCommand (AUTH at username password) =
+    do conn <- asks bsstream
+       lift $ lift $ do
+        bsPutCrLf conn command
+        (code, msg) <- parseResponse conn
+        unless (code == 334) $ fail "authentication failed."
+        bsPutCrLf conn $ BS.pack $ auth at (BS.unpack msg) username password
+        parseResponse conn
     where command = BS.pack $ unwords ["AUTH", show at]
-sendCommand (SMTPC conn _) meth =
-    do bsPutCrLf conn $ BS.pack command
-       parseResponse conn
+sendCommand meth =
+    do conn <- asks bsstream
+       lift $ lift $ do
+        bsPutCrLf conn $ BS.pack command
+        parseResponse conn
     where command = case meth of
                       (HELO param) -> "HELO " ++ param
                       (EHLO param) -> "EHLO " ++ param
@@ -267,13 +232,10 @@ sendCommand (SMTPC conn _) meth =
                       (AUTH {})     ->
                           error "BUG: AUTH pattern should be matched by sendCommand patterns"
 
-closeSMTP' :: SMTP ()
-closeSMTP' = ask >>= lift . lift . closeSMTP
-
 -- | close the connection.  This function send the QUIT method, so you
 -- do not have to QUIT method explicitly.
-closeSMTP :: SMTPConnection -> IO ()
-closeSMTP (SMTPC conn _) = bsClose conn
+closeSMTP :: Monad m => SMTP m ()
+closeSMTP = asks bsstream >>= lift . lift . bsClose
 
 {-
 I must be being stupid here
@@ -288,12 +250,6 @@ closeSMTP c@(SMTPC conn _) =
        bsClose conn `catch` \(_ :: IOException) -> return ()
 -}
 
-authenticate' :: AuthType -> UserName -> Password -> SMTP ()
-authenticate' at username password = do
-        conn <- ask
-        ok <- lift $ lift $ authenticate at username password conn
-        unless ok $ throwError "Authentication failed."
-
 {- |
 This function will return 'True' if the authentication succeeds.
 Here's an example of sending a mail with a server that requires
@@ -304,101 +260,84 @@ authentication:
 >        then sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello!") conn
 >        else print "Authentication failed."
 -}
-authenticate :: AuthType -> UserName -> Password -> SMTPConnection -> IO Bool
-authenticate at username password conn  = do
-        (code, _) <- sendCommand conn $ AUTH at username password
-        return (code == 235)
-
-sendMail' :: String     -- ^ sender mail
-         -> [String]   -- ^ receivers
-         -> ByteString -- ^ data
-         -> SMTP ()
-sendMail' sender receivers dat = do
-        conn <- ask
-        lift . lift $ sendMail sender receivers dat conn
+authenticate :: Monad m => AuthType -> UserName -> Password -> SMTP m ()
+authenticate at username password  = do
+    (code, _) <- sendCommand $ AUTH at username password
+    unless (code == 235) $ throwError "Auth failed"
 
 -- | sending a mail to a server. This is achieved by sendMessage.  If
 -- something is wrong, it raises an IOexception.
-sendMail :: String     -- ^ sender mail
+sendMail :: Monad m => String     -- ^ sender mail
          -> [String]   -- ^ receivers
          -> ByteString -- ^ data
-         -> SMTPConnection
-         -> IO ()
-sendMail sender receivers dat conn = do
+         -> SMTP m ()
+sendMail sender receivers dat = do
                  sendAndCheck (MAIL sender)
                  mapM_ (sendAndCheck . RCPT) receivers
                  sendAndCheck (DATA dat)
                  return ()
   where
     -- Try the command once and @fail@ if the response isn't 250.
-    sendAndCheck cmd = tryCommand conn cmd 1 250
+    sendAndCheck cmd = tryCommand cmd 1 250
+
+-- | connecting SMTP server with the specified name and port number.
+connectSMTPPort :: String     -- ^ name of the server
+                -> PortNumber -- ^ port number
+                -> IO (SMTPConnection IO)
+connectSMTPPort hostname port =
+    (handleToStream <$> connectTo hostname (PortNumber port))
+    >>= connectStream
+
+-- | connecting SMTP server with the specified name and port 25.
+connectSMTP :: String     -- ^ name of the server
+            -> IO (SMTPConnection IO)
+connectSMTP = flip connectSMTPPort 25
 
 -- | doSMTPPort open a connection, and do an IO action with the
 -- connection, and then close it.
-doSMTPPort :: String -> PortNumber -> (SMTPConnection -> IO a) -> IO a
+doSMTPPort :: String -> PortNumber -> (SMTPConnection IO -> IO a) -> IO a
 doSMTPPort host port =
-    bracket (connectSMTPPort host port) closeSMTP
+    bracket (connectSMTPPort host port) (bsClose . bsstream)
 
 -- | doSMTP is similar to doSMTPPort, except that it does not require
 -- port number but connects to the server with port 25.
-doSMTP :: String -> (SMTPConnection -> IO a) -> IO a
+doSMTP :: String -> (SMTPConnection IO -> IO a) -> IO a
 doSMTP host = doSMTPPort host 25
 
 -- | doSMTPStream is similar to doSMTPPort, except that its argument
 -- is a Stream data instead of hostname and port number.
-doSMTPStream :: BSStream -> (SMTPConnection -> IO a) -> IO a
-doSMTPStream s = bracket (connectStream s) closeSMTP
-
-sendPlainTextMail' :: String  -- ^ receiver
-                  -> String  -- ^ sender
-                  -> String  -- ^ subject
-                  -> LT.Text -- ^ body
-                  -> SMTP ()
-sendPlainTextMail' to from subject body = do
-    conn <- ask
-    lift.lift $ sendPlainTextMail to from subject body conn
+doSMTPStream :: BSStream IO -> (SMTPConnection IO -> IO a) -> IO a
+doSMTPStream s = bracket (connectStream s) (bsClose . bsstream)
 
 -- | Send a plain text mail.
-sendPlainTextMail :: String  -- ^ receiver
+sendPlainTextMail :: MonadIO m => String  -- ^ receiver
                   -> String  -- ^ sender
                   -> String  -- ^ subject
                   -> LT.Text -- ^ body
-                  -> SMTPConnection -- ^ the connection
-                  -> IO ()
-sendPlainTextMail to from subject body con = do
-    renderedMail <- renderMail' myMail
-    sendMail from [to] (lazyToStrict renderedMail) con
+                  -> SMTP m ()
+sendPlainTextMail to from subject body = do
+    renderedMail <- liftIO $ renderMail' myMail
+    sendMail from [to] (lazyToStrict renderedMail)
     where
         myMail = simpleMail' (address to) (address from) (T.pack subject) body
         address = Address Nothing . T.pack
 
-sendMimeMail' :: String               -- ^ receiver
-             -> String               -- ^ sender
-             -> String               -- ^ subject
-             -> LT.Text              -- ^ plain text body
-             -> LT.Text              -- ^ html body
-             -> [(T.Text, FilePath)] -- ^ attachments: [(content_type, path)]
-             -> SMTP ()
-sendMimeMail' to from subject plainBody htmlBody attachments = do
-    conn <- ask
-    lift . lift $ sendMimeMail to from subject plainBody htmlBody attachments conn
-
 -- | Send a mime mail.
-sendMimeMail :: String               -- ^ receiver
+sendMimeMail :: MonadIO m => String               -- ^ receiver
              -> String               -- ^ sender
              -> String               -- ^ subject
              -> LT.Text              -- ^ plain text body
              -> LT.Text              -- ^ html body
              -> [(T.Text, FilePath)] -- ^ attachments: [(content_type, path)]
-             -> SMTPConnection
-             -> IO ()
-sendMimeMail to from subject plainBody htmlBody attachments con = do
-  myMail <- simpleMail (address to) (address from) (T.pack subject)
-            plainBody htmlBody attachments
-  renderedMail <- renderMail' myMail
-  sendMail from [to] (lazyToStrict renderedMail) con
-  where
-    address = Address Nothing . T.pack
+             -> SMTP m ()
+sendMimeMail to from subject plainBody htmlBody attachments =
+        let address = Address Nothing . T.pack
+        in do
+            renderedMail <- liftIO $ do
+                myMail <- simpleMail (address to) (address from) (T.pack subject)
+                                     plainBody htmlBody attachments
+                renderMail' myMail
+            sendMail from [to] (lazyToStrict renderedMail)
 
 -- haskellNet uses strict bytestrings
 -- TODO: look at making haskellnet lazy
@@ -408,5 +347,5 @@ lazyToStrict = S.concat . B.toChunks
 crlf :: BS.ByteString
 crlf = BS.pack "\r\n"
 
-bsPutCrLf :: BSStream -> ByteString -> IO ()
+bsPutCrLf :: Monad m => BSStream m -> ByteString -> m ()
 bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
