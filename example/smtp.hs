@@ -39,9 +39,14 @@ example3 = do
 example4 = doSMTP server $ \conn ->
     sendMimeMail to from subject plainBody htmlBody [] conn
 
--- | With attachments (modify the `attachments` binding)
+-- | With file attachments (modify the `attachments` binding)
 example5 = doSMTP server $ \conn ->
     sendMimeMail to from subject plainBody htmlBody attachments conn
+
+-- | With ByteString attachments
+bsContent = B.pack [43,43,43,43]
+example5_2 = doSMTP server $ \conn ->
+    sendMimeMail' to from subject plainBody htmlBody [("application/zip", "filename.zip", bsContent)] conn
 
 -- | With authentication
 example6 = doSMTP server $ \conn -> do

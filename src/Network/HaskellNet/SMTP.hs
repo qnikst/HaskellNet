@@ -56,7 +56,7 @@ module Network.HaskellNet.SMTP
       -- * Operation to a Connection
     , sendCommand
     , closeSMTP
-      -- * Other Useful Operations 
+      -- * Other Useful Operations
     , authenticate
     , sendMail
     , doSMTPPort
@@ -64,6 +64,8 @@ module Network.HaskellNet.SMTP
     , doSMTPStream
     , sendPlainTextMail
     , sendMimeMail
+    , sendMimeMail'
+    , sendMimeMail2
     )
     where
 
@@ -75,7 +77,7 @@ import Network
 
 import Control.Applicative ((<$>))
 import Control.Exception
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 
 import Data.Char (isDigit)
 
@@ -308,7 +310,7 @@ sendPlainTextMail to from subject body con = do
         myMail = simpleMail' (address to) (address from) (T.pack subject) body
         address = Address Nothing . T.pack
 
--- | Send a mime mail.
+-- | Send a mime mail. The attachments are included with the file path.
 sendMimeMail :: String               -- ^ receiver
              -> String               -- ^ sender
              -> String               -- ^ subject
@@ -324,6 +326,30 @@ sendMimeMail to from subject plainBody htmlBody attachments con = do
   sendMail from [to] (lazyToStrict renderedMail) con
   where
     address = Address Nothing . T.pack
+
+-- | Send a mime mail. The attachments are included with in-memory 'ByteString'.
+sendMimeMail' :: String                         -- ^ receiver
+              -> String                         -- ^ sender
+              -> String                         -- ^ subject
+              -> LT.Text                        -- ^ plain text body
+              -> LT.Text                        -- ^ html body
+              -> [(T.Text, T.Text, B.ByteString)] -- ^ attachments: [(content_type, file_name, content)]
+              -> SMTPConnection
+              -> IO ()
+sendMimeMail' to from subject plainBody htmlBody attachments con = do
+  let myMail = simpleMailInMemory (address to) (address from) (T.pack subject)
+                                  plainBody htmlBody attachments
+  sendMimeMail2 myMail con
+  where
+    address = Address Nothing . T.pack
+
+sendMimeMail2 :: Mail -> SMTPConnection -> IO ()
+sendMimeMail2 mail con = do
+    let (Address _ from) = mailFrom mail
+        tos = map (T.unpack . addressEmail) $ mailTo mail
+    when (null tos) $ fail "no receiver specified."
+    renderedMail <- renderMail' mail
+    sendMail (T.unpack from) tos (lazyToStrict renderedMail) con
 
 -- haskellNet uses strict bytestrings
 -- TODO: look at making haskellnet lazy
