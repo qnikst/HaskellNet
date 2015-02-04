@@ -1,3 +1,7 @@
+0.4.1 -> 0.4.2
+--------------
+
+ - Add sendMimeMail' to send mime mails with in-memory attachments
 
 0.4 -> 0.4.1
 ------------
