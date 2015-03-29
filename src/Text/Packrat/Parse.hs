@@ -11,6 +11,8 @@ import Data.List
 import Text.Packrat.Pos
 
 import Control.Monad
+import           Control.Applicative (Applicative(..))
+import qualified Control.Applicative as A
 
 -- Data types
 
@@ -37,10 +39,21 @@ infixl 2 <|>
 infixl 1 <?>
 infixl 1 <?!>
 
-instance Derivs d => Monad (Parser d) where 
+instance Derivs d => Functor (Parser d) where
+    f `fmap` (Parser p1) = Parser $ parse . p1
+        where parse (Parsed val rem err) =
+                  let val2 = f val
+                  in  Parsed val2 rem err
+              parse (NoParse err) = NoParse err
+
+instance Derivs d => Applicative (Parser d) where
+    pure x = Parser (\dvs -> Parsed x dvs (nullError dvs))
+    (<*>) = ap
+
+instance Derivs d => Monad (Parser d) where
     (Parser p1) >>= f = Parser parse
         where parse dvs = first (p1 dvs)
-              first (Parsed val rem err) = 
+              first (Parsed val rem err) =
                   let Parser p2 = f val
                   in second err (p2 rem)
               first (NoParse err) = NoParse err
@@ -48,17 +61,21 @@ instance Derivs d => Monad (Parser d) where
                   Parsed val rem (joinErrors err1 err)
               second err1 (NoParse err) =
                   NoParse (joinErrors err1 err)
-    return x = Parser (\dvs -> Parsed x dvs (nullError dvs))
+    return = pure
     fail msg = Parser (\dvs -> NoParse (msgError (dvPos dvs) msg))
 
+instance Derivs d => A.Alternative (Parser d) where
+    empty = Parser $ NoParse . nullError
+    (<|>) = (<|>)
+
 instance Derivs d => MonadPlus (Parser d) where
-    mzero = Parser (\dvs -> NoParse $ nullError dvs)
-    mplus = (<|>)
+    mzero = A.empty
+    mplus = (A.<|>)
 
 (<|>) :: Derivs d => Parser d v -> Parser d v -> Parser d v
 (Parser p1) <|> (Parser p2) = Parser parse
     where parse dvs = first dvs (p1 dvs)
-          first _ (result @ (Parsed _ _ _)) = result
+          first _ (result @ (Parsed {})) = result
           first dvs (NoParse err) = second err (p2 dvs)
           second err1 (Parsed val rem err) =
               Parsed val rem (joinErrors err1 err)
@@ -76,7 +93,7 @@ satisfy (Parser p) test = Parser parse
 
 notFollowedBy :: (Derivs d, Show v) => Parser d v -> Parser d ()
 notFollowedBy (Parser p) = Parser parse
-    where parse dvs = case (p dvs) of
+    where parse dvs = case p dvs of
                         Parsed val _ _ ->
                             NoParse (msgError (dvPos dvs)
                                      ("unexpected " ++ show val))
@@ -86,7 +103,7 @@ optional :: Derivs d => Parser d v -> Parser d (Maybe v)
 optional p = (do v <- p; return (Just v)) <|> return Nothing
 
 option :: Derivs d => v -> Parser d v -> Parser d v
-option v p = (do v' <- p; return v') <|> return v
+option v p = p <|> return v
 
 many :: Derivs d => Parser d v -> Parser d [v]
 many p = (do { v <- p; vs <- many p; return (v : vs) } )
@@ -96,7 +113,7 @@ many1 :: Derivs d => Parser d v -> Parser d [v]
 many1 p = do { v <- p; vs <- many p; return (v : vs) }
 
 count :: Derivs d => Int -> Parser d v -> Parser d [v]
-count n p = sequence $ replicate n p
+count = replicateM
 
 sepBy1 :: Derivs d => Parser d v -> Parser d vsep -> Parser d [v]
 sepBy1 p psep = do v <- p
@@ -233,11 +250,11 @@ instance Ord ParseError where
     ParseError p1 _ <= ParseError p2 _  = p1 <= p2
     ParseError p1 _ >= ParseError p2 _  = p1 >= p2
     -- Special behavior: "max" joins two errors
-    max p1 p2 = joinErrors p1 p2
+    max = joinErrors
     min _ _ = undefined
 
 instance Show ParseError where
-    show (ParseError pos []) = 
+    show (ParseError pos []) =
         show pos ++ ": unknown error"
     show (ParseError pos msgs) = expectmsg expects ++ messages msgs
         where expects = getExpects msgs
@@ -265,14 +282,14 @@ anyChar :: Derivs d => Parser d Char
 anyChar = Parser dvChar
 
 char :: Derivs d => Char -> Parser d Char
-char ch = satisfy anyChar (\c -> c == ch) <?> show ch
+char ch = satisfy anyChar (== ch) <?> show ch
 
 oneOf :: Derivs d => [Char] -> Parser d Char
-oneOf chs = satisfy anyChar (\c -> c `elem` chs)
+oneOf chs = satisfy anyChar (`elem` chs)
             <?> ("one of the characters " ++ show chs)
 
 noneOf :: Derivs d => [Char] -> Parser d Char
-noneOf chs = satisfy anyChar (\c -> not (c `elem` chs))
+noneOf chs = satisfy anyChar (`notElem` chs)
              <?> ("any character not in " ++ show chs)
 
 
@@ -332,7 +349,7 @@ getDerivs :: Derivs d => Parser d d
 getDerivs = Parser (\dvs -> Parsed dvs dvs (nullError dvs))
 
 setDerivs :: Derivs d => d -> Parser d ()
-setDerivs newdvs = Parser (\dvs -> Parsed () newdvs (nullError dvs))
+setDerivs newdvs = Parser (Parsed () newdvs . nullError)
 
 getPos :: Derivs d => Parser d Pos
 getPos = Parser (\dvs -> Parsed (dvPos dvs) dvs (nullError dvs))
@@ -344,5 +361,5 @@ dvString :: Derivs d => d -> String
 dvString d =
     case dvChar d of
       NoParse _ -> []
-      Parsed c rem _ -> (c : dvString rem)
+      Parsed c rem _ -> c : dvString rem
 
