@@ -110,7 +110,7 @@ pSearch :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [UID])
 Parser pSearch =
     do untagged <- many (pSearchLine <|> pOtherLine)
        resp <- Parser pDone
-       let (mboxUp, searchRes) = mkMboxUpdate untagged 
+       let (mboxUp, searchRes) = mkMboxUpdate untagged
        return (resp, mboxUp, concat searchRes)
 
 
@@ -165,7 +165,7 @@ Parser pDone = do tag <- Parser advTag
                           ; char ')'
                           ; return $ PERMANENTFLAGS fs }
                      , string "READ-ONLY" >> return READ_ONLY
-                     , string "READ-WRITE" >> return READ_WRITE 
+                     , string "READ-WRITE" >> return READ_WRITE
                      , string "TRYCREATE" >> return TRYCREATE
                      , do { string "UNSEEN" >> space
                           ; num <- many1 digit
@@ -229,11 +229,12 @@ pCapabilityLine = do string "* CAPABILITY "
 
 pListLine :: String
           -> Parser RespDerivs (Either a ([Attribute], String, MailboxName))
-pListLine list = 
+pListLine list =
     do string "* " >> string list >> space
        attrs <- parseAttrs
        sep <- parseSep
        mbox <- parseMailbox
+       anyChar `manyTill` crlfP
        return $ Right (attrs, sep, mbox)
     where parseAttr =
               do char '\\'
@@ -248,7 +249,7 @@ pListLine list =
                           char ')'
                           return attrs
           parseSep = space >> char '"' >> anyChar `manyTill` char '"'
-          parseMailbox = space >> anyChar `manyTill` crlfP
+          parseMailbox = space >> char '"' >> anyChar `manyTill` char '"'
 
 pStatusLine :: Parser RespDerivs (Either a [(MailboxStatus, Integer)])
 pStatusLine =
@@ -294,7 +295,7 @@ pSelectLine =
                                   ; fs <- pFlag `sepBy` space
                                   ; char ')'
                                   ; return $ \mbox ->
-                                      mbox { _isFlagWritable = 
+                                      mbox { _isFlagWritable =
                                                Keyword "*" `elem` fs
                                            , _permanentFlags =
                                                filter (/= Keyword "*") fs } }
