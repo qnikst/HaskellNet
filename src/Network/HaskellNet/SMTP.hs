@@ -48,6 +48,7 @@ module Network.HaskellNet.SMTP
     ( -- * Types
       Command(..)
     , Response(..)
+    , AuthType(..)
     , SMTPConnection
       -- * Establishing Connection
     , connectSMTPPort

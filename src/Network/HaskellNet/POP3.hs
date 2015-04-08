@@ -25,6 +25,8 @@ module Network.HaskellNet.POP3
     , doPop3Port
     , doPop3
     , doPop3Stream
+      -- * Other types
+    , A.AuthType(..)
     )
     where
 

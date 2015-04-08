@@ -18,6 +18,7 @@ module Network.HaskellNet.IMAP
       -- * other types
     , Flag(..), Attribute(..), MailboxStatus(..)
     , SearchQuery(..), FlagsQuery(..)
+    , A.AuthType(..)
     )
 where
 
