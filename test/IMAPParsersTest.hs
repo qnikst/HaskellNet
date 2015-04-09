@@ -72,10 +72,12 @@ listTest =
       , MboxUpdate Nothing Nothing
       , [([], "/", "blurdybloop")
         ,([Noselect], "/", "foo")
-        ,([], "/", "foo/bar")])
+        ,([], "/", "foo/bar")
+        ,([], "/", "foo")])
       ~=? eval' pList "A682" "* LIST () \"/\" blurdybloop\r\n\
                              \* LIST (\\Noselect) \"/\" foo\r\n\
                              \* LIST () \"/\" foo/bar\r\n\
+                             \* LIST () \"/\" \"foo\"\r\n\
                              \A682 OK LIST completed\r\n"
     , ( OK Nothing "LSUB completed"
       , MboxUpdate Nothing Nothing
