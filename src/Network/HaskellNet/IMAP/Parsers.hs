@@ -234,7 +234,6 @@ pListLine list =
        attrs <- parseAttrs
        sep <- parseSep
        mbox <- parseMailbox
-       anyChar `manyTill` crlfP
        return $ Right (attrs, sep, mbox)
     where parseAttr =
               do char '\\'
@@ -249,7 +248,13 @@ pListLine list =
                           char ')'
                           return attrs
           parseSep = space >> char '"' >> anyChar `manyTill` char '"'
-          parseMailbox = space >> char '"' >> anyChar `manyTill` char '"'
+          parseMailbox = do space
+                            q <- optional $ char '"'
+                            case q of
+                                Just _  -> do mbox <- anyChar `manyTill` char '"'
+                                              anyChar `manyTill` crlfP
+                                              return mbox
+                                Nothing -> anyChar `manyTill` crlfP
 
 pStatusLine :: Parser RespDerivs (Either a [(MailboxStatus, Integer)])
 pStatusLine =
