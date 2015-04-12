@@ -4,7 +4,7 @@ Description:	This package provides client support for the POP3,
                 SMTP, and IMAP protocols.  NOTE: this package will be
                 split into smaller, protocol-specific packages in the
                 future.
-Version:        0.4.3
+Version:        0.4.4
 Copyright:      (c) 2006 Jun Mukai
 Author:         Jun Mukai
 Maintainer:	Jonathan Daugherty <cygnus@foobox.com>,

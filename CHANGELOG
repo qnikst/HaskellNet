@@ -1,3 +1,11 @@
+0.4.3 -> 0.4.4 (2015-04-11)
+--------------
+
+ - Fix a bug in IMAP Parser for listing Mboxes
+   (see https://github.com/jtdaugherty/HaskellNet/issues/34)
+ - Protocols modules re-exports AuthType
+   (see https://github.com/dpwright/HaskellNet-SSL/issues/10)
+
 0.4.2 -> 0.4.3 (2015-04-06)
 ---------------------------
 
