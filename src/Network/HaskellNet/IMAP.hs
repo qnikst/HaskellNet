@@ -244,8 +244,10 @@ authenticate conn at username password =
 
 _select :: String -> IMAPConnection -> String -> IO ()
 _select cmd conn mboxName =
-    do mbox' <- sendCommand conn (cmd ++ mboxName) pSelect
+    do mbox' <- sendCommand conn (cmd ++ quoted mboxName) pSelect
        setMailboxInfo conn $ mbox' { _mailbox = mboxName }
+    where
+       quoted s = "\"" ++ s ++ "\""
 
 select :: IMAPConnection -> MailboxName -> IO ()
 select = _select "SELECT "
