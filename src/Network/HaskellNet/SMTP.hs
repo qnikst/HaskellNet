@@ -347,10 +347,11 @@ sendMimeMail' to from subject plainBody htmlBody attachments con = do
 sendMimeMail2 :: Mail -> SMTPConnection -> IO ()
 sendMimeMail2 mail con = do
     let (Address _ from) = mailFrom mail
-        tos = map (T.unpack . addressEmail) $ mailTo mail
-    when (null tos) $ fail "no receiver specified."
+        recps = map (T.unpack . addressEmail)
+                     $ (mailTo mail ++ mailCc mail ++ mailBcc mail)
+    when (null recps) $ fail "no receiver specified."
     renderedMail <- renderMail' mail
-    sendMail (T.unpack from) tos (lazyToStrict renderedMail) con
+    sendMail (T.unpack from) recps (lazyToStrict renderedMail) con
 
 -- haskellNet uses strict bytestrings
 -- TODO: look at making haskellnet lazy
