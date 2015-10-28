@@ -28,6 +28,8 @@ data BSStream =
              -- ^Close the stream.
              , bsIsOpen :: IO Bool
              -- ^Is the stream open?
+             , bsWaitForInput :: Int -> IO Bool
+             -- ^Is data available?
              }
 
 -- |Build a byte string stream which operates on a 'Handle'.
@@ -41,4 +43,5 @@ handleToStream h =
                  op <- hIsOpen h
                  if op then (hClose h) else return ()
              , bsIsOpen = hIsOpen h
+             , bsWaitForInput = hWaitForInput h
              }
