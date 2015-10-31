@@ -12,6 +12,7 @@ module Network.HaskellNet.IMAP
       -- ** selected state commands
     , check, close, expunge
     , search, store, copy
+    , idle
       -- * fetch commands
     , fetch, fetchHeader, fetchSize, fetchHeaderFields, fetchHeaderFieldsNot
     , fetchFlags, fetchR, fetchByString, fetchByStringR
@@ -193,6 +194,26 @@ mboxUpdate conn (MboxUpdate exists' recent') = do
 ----------------------------------------------------------------------
 -- IMAP commands
 --
+
+idle :: IMAPConnection -> Int -> IO ()
+idle conn timeout =
+    do
+        (buf',num) <- sendCommand' conn "IDLE"
+        buf <-
+            if BS.take 2 buf' == BS.pack "+ "
+                then do
+                    _ <- bsWaitForInput (stream conn) timeout
+                    bsPutCrLf (stream conn) $ BS.pack "DONE"
+                    getResponse $ stream conn
+                else
+                    return buf'
+        let (resp, mboxUp, value) = eval pNone (show6 num) buf
+        case resp of
+         OK _ _        -> do mboxUpdate conn mboxUp
+                             return value
+         NO _ msg      -> fail ("NO: " ++ msg)
+         BAD _ msg     -> fail ("BAD: " ++ msg)
+         PREAUTH _ msg -> fail ("preauth: " ++ msg)
 
 noop :: IMAPConnection -> IO ()
 noop conn = sendCommand conn "NOOP" pNone
