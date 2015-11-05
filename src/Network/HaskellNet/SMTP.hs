@@ -350,7 +350,7 @@ sendMimeMail2 mail con = do
         recps = map (T.unpack . addressEmail)
                      $ (mailTo mail ++ mailCc mail ++ mailBcc mail)
     when (null recps) $ fail "no receiver specified."
-    renderedMail <- renderMail' mail
+    renderedMail <- renderMail' $ mail { mailBcc = [] }
     sendMail (T.unpack from) recps (lazyToStrict renderedMail) con
 
 -- haskellNet uses strict bytestrings
