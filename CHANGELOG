@@ -1,10 +1,23 @@
+0.5 (2015-11-5)
+---------------
+
+ - No longer render Bcc field when rendering messages (thanks Dan Aloni
+   <alonid@gmail.com>)
+ - Implemented IDLE command (thanks Alexander Inyukhin
+   <shurick@sectorb.msk.ru>)
+ - Added stream wait function (bsWaitForInput field of type BSStream)
+   (thanks Alexander Inyukhin <shurick@sectorb.msk.ru>)
+ - SMTP: RCPT also includes Cc and Bcc lists rather than just To list
+   (thanks Author: Dan Aloni <alonid@gmail.com>)
+
 0.4.4 -> 0.4.5 (2015-06-18)
+---------------------------
 
  - IMAP: select command must quote the mailbox name
    (see https://github.com/jtdaugherty/HaskellNet/issues/35)
 
 0.4.3 -> 0.4.4 (2015-04-11)
---------------
+---------------------------
 
  - Fix a bug in IMAP Parser for listing Mboxes
    (see https://github.com/jtdaugherty/HaskellNet/issues/34)
