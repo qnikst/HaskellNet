@@ -192,9 +192,12 @@ sendCommand (SMTPC conn _) (DATA dat) =
     do bsPutCrLf conn $ BS.pack "DATA"
        (code, _) <- parseResponse conn
        unless (code == 354) $ fail "this server cannot accept any data."
-       mapM_ sendLine $ BS.lines dat ++ [BS.pack "."]
+       mapM_ (sendLine . stripCR) $ BS.lines dat ++ [BS.pack "."]
        parseResponse conn
     where sendLine = bsPutCrLf conn
+          stripCR bs = case BS.unsnoc bs of
+                         Just (line, '\r') -> line
+                         _                 -> bs
 sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
     do bsPutCrLf conn command
        (_, _) <- parseResponse conn
