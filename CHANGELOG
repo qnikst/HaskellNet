@@ -1,3 +1,8 @@
+HEAD
+----
+
+ - IMAP: Add parenthesis around the multiple headers in fetchHeaderFields and fetchHeaderFieldsNot
+
 0.5.1 (2016-05-05)
 ------------------
 

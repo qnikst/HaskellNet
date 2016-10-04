@@ -377,14 +377,14 @@ fetchSize conn uid =
 fetchHeaderFields :: IMAPConnection
                   -> UID -> [String] -> IO ByteString
 fetchHeaderFields conn uid hs =
-    do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS "++unwords hs++"]")
+    do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS ("++unwords hs++")]")
        return $ maybe BS.empty BS.pack $
-              lookup' ("BODY[HEADER.FIELDS "++unwords hs++"]") lst
+              lookup' ("BODY[HEADER.FIELDS ("++unwords hs++")]") lst
 
 fetchHeaderFieldsNot :: IMAPConnection
                      -> UID -> [String] -> IO ByteString
 fetchHeaderFieldsNot conn uid hs =
-    do let fetchCmd = "BODY[HEADER.FIELDS.NOT "++unwords hs++"]"
+    do let fetchCmd = "BODY[HEADER.FIELDS.NOT ("++unwords hs++")]"
        lst <- fetchByString conn uid fetchCmd
        return $ maybe BS.empty BS.pack $ lookup' fetchCmd lst
 
