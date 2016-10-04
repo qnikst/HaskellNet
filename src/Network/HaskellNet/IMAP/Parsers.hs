@@ -323,7 +323,7 @@ pFetchLine =
        num <- many1 digit
        string " FETCH" >> spaces
        char '('
-       pairs <- pPair `sepBy` space
+       pairs <- pPair `sepBy` (spaces1 <|> crlfP)
        char ')'
        crlfP
        return $ Right $ (read num, pairs)
@@ -339,7 +339,7 @@ pFetchLine =
                           <|> (do char '{'
                                   num <- many1 digit >>= return . read
                                   char '}' >> crlfP
-                                  sequence $ replicate num anyChar)
+                                  count (num - 2) anyChar)
                           <|> (do char '"'
                                   v <- noneOf "\"" `manyTill` char '"'
                                   return ("\""++v++"\""))
