@@ -97,6 +97,7 @@ data MailboxStatus = MESSAGES     -- ^ the number of messages in the mailbox
                    | RECENT       -- ^ the number of messages with the \Recent flag set
                    | UIDNEXT      -- ^ the next unique identifier value of the mailbox
                    | UIDVALIDITY  -- ^ the unique identifier validity value of the mailbox
+                   | UNSEEN       -- ^ the number of messages with the \Unseen flag set
                      deriving (Show, Read, Eq)
 
 
