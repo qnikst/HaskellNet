@@ -268,6 +268,7 @@ pStatusLine =
                                 , string "RECENT"      >>= return . read
                                 , string "UIDNEXT"     >>= return . read
                                 , string "UIDVALIDITY" >>= return . read
+                                , string "UNSEEN"      >>= return . read
                                 ]
                  space
                  num <- many1 digit >>= return . read
