@@ -359,7 +359,7 @@ sendMimeMail2 mail con = do
 -- haskellNet uses strict bytestrings
 -- TODO: look at making haskellnet lazy
 lazyToStrict :: B.ByteString -> S.ByteString
-lazyToStrict = S.concat . B.toChunks
+lazyToStrict = B.toStrict
 
 crlf :: BS.ByteString
 crlf = BS.pack "\r\n"
