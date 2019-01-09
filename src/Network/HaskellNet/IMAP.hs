@@ -165,7 +165,8 @@ getResponse s = unlinesCRLF <$> getLs
           getLs =
               do l <- strip <$> bsGetLine s
                  case () of
-                   _ | isLiteral l ->  do l' <- getLiteral l (getLitLen l)
+                   _ | BS.null l -> return [l]
+                     | isLiteral l ->  do l' <- getLiteral l (getLitLen l)
                                           ls <- getLs
                                           return (l' : ls)
                      | isTagged l -> (l:) <$> getLs
