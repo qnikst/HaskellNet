@@ -210,7 +210,7 @@ sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
 sendCommand (SMTPC conn _) (AUTH at username password) =
     do bsPutCrLf conn command
        (code, msg) <- parseResponse conn
-       unless (code == 334) $ fail "authentication failed."
+       unless (code == 334) $ fail $ "authentication failed: " ++ (BS.unpack msg)
        bsPutCrLf conn $ BS.pack $ auth at (BS.unpack msg) username password
        parseResponse conn
     where command = BS.pack $ unwords ["AUTH", show at]
