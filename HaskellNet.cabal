@@ -56,5 +56,5 @@ Library
     cryptohash,
     base64-string,
     old-time,
-    mime-mail >= 0.4.7 && < 0.5,
+    mime-mail >= 0.4.7 && < 0.6,
     text
