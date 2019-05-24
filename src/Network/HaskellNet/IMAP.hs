@@ -315,17 +315,18 @@ status conn mbox stats =
     in sendCommand conn cmd pStatus
 
 append :: IMAPConnection -> MailboxName -> ByteString -> IO ()
-append conn mbox mailData = appendFull conn mbox mailData [] Nothing
+append conn mbox mailData = appendFull conn mbox mailData Nothing Nothing
 
 appendFull :: IMAPConnection -> MailboxName -> ByteString
-           -> [Flag] -> Maybe CalendarTime -> IO ()
+           -> Maybe [Flag] -> Maybe CalendarTime -> IO ()
 appendFull conn mbox mailData flags' time =
     do (buf, num) <- sendCommand' conn
-                (unwords ["APPEND", mbox
-                         , fstr, tstr,  "{" ++ show len ++ "}"])
-       unless (BS.null buf || (BS.head buf /= '+')) $
+                (concat ["APPEND ", mbox
+                        , fstr, tstr, " {" ++ show len ++ "}"])
+       when (BS.null buf || (BS.head buf /= '+')) $
               fail "illegal server response"
        mapM_ (bsPutCrLf $ stream conn) mailLines
+       bsPutCrLf (stream conn) BS.empty
        buf2 <- getResponse $ stream conn
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf2
        case resp of
@@ -335,8 +336,8 @@ appendFull conn mbox mailData flags' time =
          PREAUTH _ msg -> fail ("PREAUTH: "++msg)
     where mailLines = BS.lines mailData
           len       = sum $ map ((2+) . BS.length) mailLines
-          tstr      = maybe "" show time
-          fstr      = unwords $ map show flags'
+          tstr      = maybe "" ((" "++) . show) time
+          fstr      = maybe "" ((" ("++) . (++")") . unwords . map show) flags'
 
 check :: IMAPConnection -> IO ()
 check conn = sendCommand conn "CHECK" pNone
