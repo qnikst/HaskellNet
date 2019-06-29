@@ -46,14 +46,17 @@ Library
     Text.Packrat.Pos
     Text.Packrat.Parse
 
+  other-extensions:
+    MultiWayIf
+
   Build-Depends:
-    base >= 4 && < 5,
+    base >= 4.3 && < 4.13,
     network >= 2 && < 3,
     mtl,
-    bytestring,
+    bytestring >=0.10.2,
     pretty,
     array,
-    cryptohash,
+    cryptohash >=0.6,
     base64-string,
     old-time,
     mime-mail >= 0.4.7 && < 0.6,

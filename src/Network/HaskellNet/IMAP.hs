@@ -34,7 +34,7 @@ import qualified Network.HaskellNet.Auth as A
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>), (<*>))
 import Control.Monad
 
 import System.Time
