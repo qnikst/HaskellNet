@@ -1,4 +1,3 @@
-{-# LANGUAGE MultiWayIf #-}
 module Network.HaskellNet.IMAP
     ( connectIMAP, connectIMAPPort, connectStream
       -- * IMAP commands
@@ -165,10 +164,13 @@ getResponse s = unlinesCRLF <$> getLs
     where unlinesCRLF = BS.concat . concatMap (:[crlfStr])
           getLs =
               do l <- strip <$> bsGetLine s
-                 if | BS.null l -> return [l]
-                    | isLiteral l -> (:) <$> getLiteral l (getLitLen l) <*> getLs
-                    | isTagged l -> (l:) <$> getLs
-                    | otherwise -> return [l]
+                 case () of
+                   _ | BS.null l -> return [l]
+                     | isLiteral l ->  do l' <- getLiteral l (getLitLen l)
+                                          ls <- getLs
+                                          return (l' : ls)
+                     | isTagged l -> (l:) <$> getLs
+                     | otherwise -> return [l]
           getLiteral l len =
               do lit <- bsGet s len
                  l2 <- strip <$> bsGetLine s
