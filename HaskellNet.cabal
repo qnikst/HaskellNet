@@ -13,8 +13,19 @@ License:        BSD3
 License-file:   LICENSE
 Category:       Network
 Homepage:       https://github.com/jtdaugherty/HaskellNet
-Cabal-version:  >=1.6
+Cabal-version:  >=1.8
 Build-type:     Simple
+Tested-with:
+  GHC ==7.0.4
+   || ==7.2.2
+   || ==7.4.2
+   || ==7.6.3
+   || ==7.8.4
+   || ==7.10.3
+   || ==8.0.2
+   || ==8.2.2
+   || ==8.4.4
+   || ==8.6.5
 
 Extra-Source-Files:
   CHANGELOG
@@ -45,9 +56,6 @@ Library
   Other-modules:
     Text.Packrat.Pos
     Text.Packrat.Parse
-
-  other-extensions:
-    MultiWayIf
 
   Build-Depends:
     base >= 4.3 && < 4.13,
