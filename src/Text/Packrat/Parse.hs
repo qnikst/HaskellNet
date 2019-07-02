@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 -- | Packrat parsing: Simple, Powerful, Lazy, Linear time by Bryan
 -- Ford.  This module achieves monadic parsing library similar to
 -- Parsec.
@@ -13,6 +14,8 @@ import Text.Packrat.Pos
 import Control.Monad
 import           Control.Applicative (Applicative(..))
 import qualified Control.Applicative as A
+
+import qualified Control.Monad.Fail as Fail
 
 -- Data types
 
@@ -62,6 +65,12 @@ instance Derivs d => Monad (Parser d) where
               second err1 (NoParse err) =
                   NoParse (joinErrors err1 err)
     return = pure
+
+#if !(MIN_VERSION_base(4,13,0))
+    fail = Fail.fail
+#endif
+
+instance Derivs d => Fail.MonadFail (Parser d) where
     fail msg = Parser (\dvs -> NoParse (msgError (dvPos dvs) msg))
 
 instance Derivs d => A.Alternative (Parser d) where

@@ -31,7 +31,8 @@ module Network.HaskellNet.POP3
     where
 
 import Network.HaskellNet.BSStream
-import Network
+import Network.Socket
+import Network.Compat
 import qualified Network.HaskellNet.Auth as A
 
 import Data.ByteString (ByteString)
@@ -74,7 +75,7 @@ stripEnd = BS.reverse . trimR
 -- number
 connectPop3Port :: String -> PortNumber -> IO POP3Connection
 connectPop3Port hostname port =
-    handleToStream <$> (connectTo hostname (PortNumber port))
+    handleToStream <$> (connectTo hostname port)
     >>= connectStream
 
 -- | connecting to the pop3 server specified by the hostname. 110 is

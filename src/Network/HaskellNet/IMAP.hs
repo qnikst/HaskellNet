@@ -23,7 +23,8 @@ module Network.HaskellNet.IMAP
     )
 where
 
-import Network
+import Network.Socket (PortNumber)
+import Network.Compat
 import Network.HaskellNet.BSStream
 import Network.HaskellNet.IMAP.Connection
 import Network.HaskellNet.IMAP.Types
@@ -116,7 +117,7 @@ data FlagsQuery = ReplaceFlags [Flag]
 
 connectIMAPPort :: String -> PortNumber -> IO IMAPConnection
 connectIMAPPort hostname port =
-    handleToStream <$> connectTo hostname (PortNumber port)
+    handleToStream <$> connectTo hostname port
     >>= connectStream
 
 connectIMAP :: String -> IO IMAPConnection
