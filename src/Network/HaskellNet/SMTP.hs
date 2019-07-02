@@ -74,7 +74,8 @@ import Network.HaskellNet.BSStream
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 import Network.BSD (getHostName)
-import Network
+import Network.Socket
+import Network.Compat
 
 import Control.Applicative ((<$>))
 import Control.Exception
@@ -140,7 +141,7 @@ connectSMTPPort :: String     -- ^ name of the server
                 -> PortNumber -- ^ port number
                 -> IO SMTPConnection
 connectSMTPPort hostname port =
-    (handleToStream <$> connectTo hostname (PortNumber port))
+    (handleToStream <$> connectTo hostname port)
     >>= connectStream
 
 -- | connecting SMTP server with the specified name and port 25.
