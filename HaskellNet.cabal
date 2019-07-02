@@ -26,6 +26,7 @@ Tested-with:
    || ==8.2.2
    || ==8.4.4
    || ==8.6.5
+   || ==8.8.1
 
 Extra-Source-Files:
   CHANGELOG
@@ -64,7 +65,7 @@ Library
     Text.Packrat.Parse
 
   Build-Depends:
-    base >= 4.3 && < 4.13,
+    base >= 4.3 && < 4.14,
     network >= 2.6.3.1 && < 3.2,
     mtl,
     bytestring >=0.10.2,
@@ -75,6 +76,9 @@ Library
     old-time,
     mime-mail >= 0.4.7 && < 0.6,
     text
+
+  if !impl(ghc >= 8.0)
+    Build-depends: fail >= 4.9.0.0 && <4.10
 
   if flag(network-bsd)
     Build-Depends: network-bsd >=2.7 && <2.9,
