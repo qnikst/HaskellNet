@@ -152,16 +152,24 @@ connectSMTP = flip connectSMTPPort 25
 tryCommand :: SMTPConnection -> Command -> Int -> [ReplyCode]
            -> IO ByteString
 tryCommand conn cmd tries expectedReplies = do
-  (code, msg) <- sendCommand conn cmd
-  case () of
-    _ | code `elem` expectedReplies   -> return msg
-    _ | tries > 1               ->
-          tryCommand conn cmd (tries - 1) expectedReplies
-      | otherwise               -> do
-          bsClose (bsstream conn)
-          fail $ "cannot execute command " ++ show cmd ++
-                 ", expected reply code any of " ++ show expectedReplies ++
-                 ", but received " ++ show code ++ " " ++ BS.unpack msg
+    (code, msg) <- sendCommand conn cmd
+    case () of
+        _ | code `elem` expectedReplies -> return msg
+        _ | tries > 1 ->
+            tryCommand conn cmd (tries - 1) expectedReplies
+          | otherwise -> do
+            bsClose (bsstream conn)
+            fail $ "cannot execute command " ++ show cmd ++
+                ", " ++ prettyExpected expectedReplies ++
+                ", " ++ prettyReceived code msg
+
+  where
+    prettyReceived :: Int -> ByteString -> String
+    prettyReceived co ms = "but received" ++ show co ++ " (" ++ BS.unpack ms ++ ")"
+
+    prettyExpected :: [ReplyCode] -> String
+    prettyExpected [x] = "expected reply code of " ++ show x
+    prettyExpected xs = "expected any reply code of " ++ show xs
 
 -- | create SMTPConnection from already connected Stream
 connectStream :: BSStream -> IO SMTPConnection
