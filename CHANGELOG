@@ -1,7 +1,7 @@
 0.5.2 (2019-12-05)
 ------------------
 
- - SMTP: Strip carriage returns from the on lines before sending
+ - More helpful error message on SMTP auth failure
    (thanks to Marek Suchánek)
  - Newer mime-mail version
    (thanks to Marek Suchánek)
@@ -11,7 +11,7 @@
 0.5.1 (2016-05-05)
 ------------------
 
- - More helpful error message on SMTP auth failure
+ - SMTP: Strip carriage returns from the on lines before sending
 
 0.5 (2015-11-5)
 ---------------
