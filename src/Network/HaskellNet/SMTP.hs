@@ -191,8 +191,8 @@ parseResponse st =
 sendCommand :: SMTPConnection -> Command -> IO (ReplyCode, ByteString)
 sendCommand (SMTPC conn _) (DATA dat) =
     do bsPutCrLf conn $ BS.pack "DATA"
-       (code, _) <- parseResponse conn
-       unless (code == 354) $ fail "this server cannot accept any data."
+       (code, msg) <- parseResponse conn
+       unless (code == 354) $ fail $ "this server cannot accept any data. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
        mapM_ (sendLine . stripCR) $ BS.lines dat ++ [BS.pack "."]
        parseResponse conn
     where sendLine = bsPutCrLf conn
@@ -211,7 +211,7 @@ sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
 sendCommand (SMTPC conn _) (AUTH at username password) =
     do bsPutCrLf conn command
        (code, msg) <- parseResponse conn
-       unless (code == 334) $ fail $ "authentication failed: " ++ (BS.unpack msg)
+       unless (code == 334) $ fail $ "authentication failed. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
        bsPutCrLf conn $ BS.pack $ auth at (BS.unpack msg) username password
        parseResponse conn
     where command = BS.pack $ unwords ["AUTH", show at]
