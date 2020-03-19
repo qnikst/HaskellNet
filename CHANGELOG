@@ -1,3 +1,19 @@
+0.5.2 (2020-03-19)
+------------------
+
+ - Improved Monad failure messages from sendCommmand (thanks Scott
+   Fleischman)
+ - Fixed IMAP append (thanks Keijo Kapp)
+ - Added support for GHC 8.8.1 (thanks Oleg Grenrus)
+ - Added support for network-3 (thanks Oleg Grenrus)
+ - Increased upper bound on mime-mail to include 0.5 (thanks Marek
+   Suchánek)
+ - Improved failure message for AUTH failures (thanks Tom McLaughlin)
+ - Avoided unsafe use of unsafe bytestring length functions in
+   getResponse (thanks Javran Cheng)
+ - Added support for UNSEEN in STATUS commands (thanks Dominik Xaver
+   Hörl)
+
 0.5.1 (2016-05-05)
 ------------------
 
