@@ -12,7 +12,9 @@ Session.vim
 tags
 
 # Haskell
-dist
+dist/
+dist-newstyle/
+.ghc.environment.*
 cabal-dev
 *.o
 *.hi
