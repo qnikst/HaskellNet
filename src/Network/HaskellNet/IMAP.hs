@@ -180,7 +180,8 @@ getResponse s = unlinesCRLF <$> getLs
                    then getLiteral l' (getLitLen l2)
                    else return l'
           crlfStr = BS.pack "\r\n"
-          isLiteral l = BS.last l == '}' &&
+          isLiteral l = not (BS.null l) &&
+                        BS.last l == '}' &&
                         BS.last (fst (BS.spanEnd isDigit (BS.init l))) == '{'
           getLitLen = read . BS.unpack . snd . BS.spanEnd isDigit . BS.init
           isTagged l = BS.head l == '*' && BS.head (BS.tail l) == ' '
