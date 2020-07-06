@@ -149,19 +149,27 @@ connectSMTP :: String     -- ^ name of the server
             -> IO SMTPConnection
 connectSMTP = flip connectSMTPPort 25
 
-tryCommand :: SMTPConnection -> Command -> Int -> ReplyCode
+tryCommand :: SMTPConnection -> Command -> Int -> [ReplyCode]
            -> IO ByteString
-tryCommand conn cmd tries expectedReply = do
-  (code, msg) <- sendCommand conn cmd
-  case () of
-    _ | code == expectedReply   -> return msg
-    _ | tries > 1               ->
-          tryCommand conn cmd (tries - 1) expectedReply
-      | otherwise               -> do
-          bsClose (bsstream conn)
-          fail $ "cannot execute command " ++ show cmd ++
-                 ", expected reply code " ++ show expectedReply ++
-                 ", but received " ++ show code ++ " " ++ BS.unpack msg
+tryCommand conn cmd tries expectedReplies = do
+    (code, msg) <- sendCommand conn cmd
+    case () of
+        _ | code `elem` expectedReplies -> return msg
+        _ | tries > 1 ->
+            tryCommand conn cmd (tries - 1) expectedReplies
+          | otherwise -> do
+            bsClose (bsstream conn)
+            fail $ "cannot execute command " ++ show cmd ++
+                ", " ++ prettyExpected expectedReplies ++
+                ", " ++ prettyReceived code msg
+
+  where
+    prettyReceived :: Int -> ByteString -> String
+    prettyReceived co ms = "but received" ++ show co ++ " (" ++ BS.unpack ms ++ ")"
+
+    prettyExpected :: [ReplyCode] -> String
+    prettyExpected [x] = "expected reply code of " ++ show x
+    prettyExpected xs = "expected any reply code of " ++ show xs
 
 -- | create SMTPConnection from already connected Stream
 connectStream :: BSStream -> IO SMTPConnection
@@ -171,7 +179,7 @@ connectStream st =
               do bsClose st
                  fail "cannot connect to the server"
        senderHost <- getHostName
-       msg <- tryCommand (SMTPC st []) (EHLO senderHost) 3 250
+       msg <- tryCommand (SMTPC st []) (EHLO senderHost) 3 [250]
        return (SMTPC st (tail $ BS.lines msg))
 
 parseResponse :: BSStream -> IO (ReplyCode, ByteString)
@@ -283,7 +291,7 @@ sendMail sender receivers dat conn = do
                  return ()
   where
     -- Try the command once and @fail@ if the response isn't 250.
-    sendAndCheck cmd = tryCommand conn cmd 1 250
+    sendAndCheck cmd = tryCommand conn cmd 1 [250, 251]
 
 -- | doSMTPPort open a connection, and do an IO action with the
 -- connection, and then close it.
