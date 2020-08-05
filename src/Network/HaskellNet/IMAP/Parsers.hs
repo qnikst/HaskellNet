@@ -324,8 +324,7 @@ pFetchLine =
        num <- many1 digit
        string " FETCH" >> spaces
        char '('
-       pairs <- pPair `sepBy` space
-       char ')'
+       pairs <- pPair `manyTill` char ')'
        crlfP
        return $ Right $ (read num, pairs)
     where pPair = do key <- (do k  <- anyChar `manyTill` char '['
@@ -345,6 +344,7 @@ pFetchLine =
                                   v <- noneOf "\"" `manyTill` char '"'
                                   return ("\""++v++"\""))
                           <|> many1 atomChar
+                     spaces
                      return (key, value)
           pParen = (do char '"'
                        v <- noneOf "\"" `manyTill` char '"'
