@@ -71,7 +71,7 @@ Library
     bytestring >=0.10.2,
     pretty,
     array,
-    cryptohash >=0.6,
+    cryptohash-md5,
     base64-string,
     old-time,
     mime-mail >= 0.4.7 && < 0.6,
