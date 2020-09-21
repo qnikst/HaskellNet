@@ -26,7 +26,11 @@ instance Show AuthType where
               showMain CRAM_MD5 = "CRAM-MD5"
 
 b64Encode :: String -> String
-b64Encode = map (toEnum.fromEnum) . B64.encode . map (toEnum.fromEnum)
+b64Encode = map (toEnum.fromEnum)
+          -- Hotfix for https://github.com/jtdaugherty/HaskellNet/issues/61
+          . delete '\n'
+          . B64.encode
+          . map (toEnum.fromEnum)
 
 b64Decode :: String -> String
 b64Decode = map (toEnum.fromEnum) . B64.decode . map (toEnum.fromEnum)
