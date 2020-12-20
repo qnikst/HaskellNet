@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 module Network.HaskellNet.POP3
     ( -- * Establishing Connection
       connectPop3Port
@@ -41,7 +42,7 @@ import qualified Data.ByteString.Char8 as BS
 import Crypto.Hash.MD5
 import Numeric (showHex)
 
-import Control.Applicative ((<$>))
+import Control.Applicative
 import Control.Exception
 import Control.Monad (when, unless)
 
@@ -50,7 +51,7 @@ import Data.Char (isSpace, isControl)
 
 import System.IO
 
-import Prelude hiding (catch)
+import Prelude
 
 import Network.HaskellNet.POP3.Types
 import Network.HaskellNet.POP3.Connection
