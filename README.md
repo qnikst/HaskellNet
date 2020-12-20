@@ -1,7 +1,7 @@
 HaskellNet
 ==========
 
-[![Build Status](https://travis-ci.org/lemol/HaskellNet.svg)](https://travis-ci.org/lemol/HaskellNet)
+![Haskell-CI](https://github.com/qnikst/HaskellNet/workflows/Haskell-CI/badge.svg)
 
 **NOTE: I am seeking a maintainer for this package. If you are
 interested, let me know! In the mean time, this package is NOT
