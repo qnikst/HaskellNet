@@ -25,9 +25,6 @@ import Data.IORef
     , modifyIORef
     )
 import Control.Applicative
-    ( (<$>)
-    , (<*>)
-    )
 
 import Network.HaskellNet.BSStream
 import Network.HaskellNet.IMAP.Types
@@ -37,6 +34,7 @@ import Network.HaskellNet.IMAP.Types
     , Flag
     , UID
     )
+import Prelude
 
 data IMAPConnection =
     IMAPC { stream :: BSStream
