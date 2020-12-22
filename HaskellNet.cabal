@@ -41,6 +41,7 @@ Flag network-bsd
 
 Library
   Hs-Source-Dirs: src
+  default-language: Haskell2010
   GHC-Options: -Wall -fno-warn-unused-do-bind
 
   Exposed-modules:
