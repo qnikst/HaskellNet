@@ -1,3 +1,10 @@
+0.5.3 (2020-12-22)
+------------------
+
+  - Allow 0 spaces or more than 1 space in separator (thanks Daniel Smith <danielspencersmith@gmail.com>)
+  - Use cryptohash-md5 instead of cryptohash (thanks to amesgen <amesgen@amesgen.de>)
+  - Fix long passwords encoding (thanks to Victor Nawothnig <Victor.Nawothnig@gmail.com>)
+
 0.5.2 (2020-03-19)
 ------------------
 
