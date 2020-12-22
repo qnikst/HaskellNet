@@ -181,4 +181,4 @@ crlf :: BS.ByteString
 crlf = BS.pack "\r\n"
 
 bsPutCrLf :: BSStream -> ByteString -> IO ()
-bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
+bsPutCrLf h s = bsPut h (s <> crlf)
