@@ -134,8 +134,7 @@ tryCommand conn cmd tries expectedReplies = do
         _ | code `elem` expectedReplies -> return msg
         _ | tries > 1 ->
             tryCommand conn cmd (tries - 1) expectedReplies
-          | otherwise -> do
-            bsClose (bsstream conn)
+          | otherwise ->
             throwIO $ UnexpectedReply cmd expectedReplies code msg
 
 -- | Read response from the stream. Response consists of the code
