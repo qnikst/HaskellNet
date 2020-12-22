@@ -121,7 +121,7 @@ instance Exception SMTPException where
 -- be closed automatically.
 --
 -- The behaviors in notes will likely be changed in the future
--- and should not be relied upon, see issues #76, #77.
+-- and should not be relied upon, see issues 76, 77.
 tryCommand
   :: SMTPConnection -- ^ Connection
   -> Command -- ^ Supported command
