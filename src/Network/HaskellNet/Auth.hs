@@ -2,13 +2,14 @@ module Network.HaskellNet.Auth
 where
 
 import Crypto.Hash.MD5
-import qualified Codec.Binary.Base64.String as B64 (encode, decode)
+import Data.Text.Encoding.Base64 as B64
 
 import Data.Word
 import Data.List
 import Data.Bits
 import Data.Array
 import qualified Data.ByteString as B
+import qualified Data.Text as T
 
 type UserName = String
 type Password = String
@@ -26,14 +27,10 @@ instance Show AuthType where
               showMain CRAM_MD5 = "CRAM-MD5"
 
 b64Encode :: String -> String
-b64Encode = map (toEnum.fromEnum)
-          -- Hotfix for https://github.com/jtdaugherty/HaskellNet/issues/61
-          . delete '\n'
-          . B64.encode
-          . map (toEnum.fromEnum)
+b64Encode = T.unpack . B64.encodeBase64 . T.pack
 
 b64Decode :: String -> String
-b64Decode = map (toEnum.fromEnum) . B64.decode . map (toEnum.fromEnum)
+b64Decode = T.unpack . B64.decodeBase64Lenient . T.pack
 
 showOctet :: [Word8] -> String
 showOctet = concatMap hexChars
