@@ -177,7 +177,7 @@ connectStream st =
        unless (code1 == 220) $
               do bsClose st
                  fail "cannot connect to the server"
-       senderHost <- getHostName
+       senderHost <- T.pack <$> getHostName
        msg <- tryCommand (SMTPC st []) (EHLO senderHost) 3 [250]
        return (SMTPC st (tail $ BS.lines msg))
 

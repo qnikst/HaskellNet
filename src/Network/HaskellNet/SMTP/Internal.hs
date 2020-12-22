@@ -46,14 +46,14 @@ data SMTPConnection = SMTPC {
 -- | SMT commands.
 --
 -- Supports basic and extended SMTP protocol without TLS support.
-data Command = HELO String
-             | EHLO String
+data Command = HELO T.Text
+             | EHLO T.Text
              | MAIL T.Text
              | RCPT T.Text
              | DATA ByteString
-             | EXPN String
-             | VRFY String
-             | HELP String
+             | EXPN T.Text
+             | VRFY T.Text
+             | HELP T.Text
              | AUTH AuthType UserName Password
              | NOOP
              | RSET
@@ -190,7 +190,7 @@ sendCommand
   -> Command
   -> IO (ReplyCode, ByteString)
 sendCommand (SMTPC conn _) (DATA dat) =
-    do bsPutCrLf conn $ BS.pack "DATA"
+    do bsPutCrLf conn "DATA"
        (code, msg) <- parseResponse conn
        unless (code == 354) $ throwIO $ NotConfirmed code msg
        mapM_ (sendLine . stripCR) $ BS.lines dat ++ [BS.pack "."]
@@ -206,31 +206,31 @@ sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
        (_, _) <- parseResponse conn
        bsPutCrLf conn $ BS.pack passB64
        parseResponse conn
-    where command = BS.pack "AUTH LOGIN"
+    where command = "AUTH LOGIN"
           (userB64, passB64) = login username password
 sendCommand (SMTPC conn _) (AUTH at username password) =
-    do bsPutCrLf conn command
+    do bsPutCrLf conn $ T.encodeUtf8 command
        (code, msg) <- parseResponse conn
        unless (code == 334) $ throwIO $ AuthNegotiationFailed code msg
        bsPutCrLf conn $ BS.pack $ auth at (BS.unpack msg) username password
        parseResponse conn
-    where command = BS.pack $ unwords ["AUTH", show at]
+    where command = T.unwords ["AUTH", T.pack (show at)]
 sendCommand (SMTPC conn _) meth =
-    do bsPutCrLf conn $ command
+    do bsPutCrLf conn $! T.encodeUtf8 command
        parseResponse conn
     where command = case meth of
-                      (HELO param) -> BS.pack $ "HELO " ++ param
-                      (EHLO param) -> BS.pack $ "EHLO " ++ param
-                      (MAIL param) -> T.encodeUtf8 $ "MAIL FROM:<" <> param <> ">"
-                      (RCPT param) -> T.encodeUtf8 $ "RCPT TO:<" <> param <> ">"
-                      (EXPN param) -> BS.pack $ "EXPN " ++ param
-                      (VRFY param) -> BS.pack $ "VRFY " ++ param
-                      (HELP msg)   -> BS.pack $ if null msg
-                                        then "HELP\r\n"
-                                        else "HELP " ++ msg
-                      NOOP         -> BS.pack $ "NOOP"
-                      RSET         -> BS.pack $ "RSET"
-                      QUIT         -> BS.pack $ "QUIT"
+                      (HELO param) -> "HELO " <> param
+                      (EHLO param) -> "EHLO " <> param
+                      (MAIL param) -> "MAIL FROM:<" <> param <> ">"
+                      (RCPT param) -> "RCPT TO:<" <> param <> ">"
+                      (EXPN param) -> "EXPN " <> param
+                      (VRFY param) -> "VRFY " <> param
+                      (HELP msg)   -> if T.null msg
+                                      then "HELP\r\n"
+                                      else "HELP " <> msg
+                      NOOP         -> "NOOP"
+                      RSET         -> "RSET"
+                      QUIT         -> "QUIT"
                       (DATA _)     ->
                           error "BUG: DATA pattern should be matched by sendCommand patterns"
                       (AUTH {})     ->
