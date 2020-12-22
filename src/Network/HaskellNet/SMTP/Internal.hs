@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 -- |
 -- Internal functions that are used in the SMTP protocol,
 -- you may need these module in case if you want to implement additional
@@ -6,6 +7,7 @@ module Network.HaskellNet.SMTP.Internal
   ( SMTPConnection(..)
   , Command(..)
   , Response(..)
+  , SMTPException(..)
   , ReplyCode
   , tryCommand
   , parseResponse
@@ -14,10 +16,12 @@ module Network.HaskellNet.SMTP.Internal
   , closeSMTP
   ) where
 
+import Control.Exception
 import Control.Monad (unless)
 import Data.Char (isDigit)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
+import Data.Typeable
 
 import Network.HaskellNet.Auth
 import Network.HaskellNet.BSStream
@@ -77,6 +81,31 @@ data Response = Ok
               | TransactionFailed
                 deriving (Show, Eq)
 
+-- | Exceptions that can happen during communication.
+data SMTPException
+  = UnexpectedReply Command [ReplyCode] ReplyCode BS.ByteString
+  | NotConfirmed ReplyCode BS.ByteString
+  | AuthNegotiationFailed ReplyCode BS.ByteString
+  deriving (Show)
+  deriving (Typeable)
+
+instance Exception SMTPException where
+  displayException (UnexpectedReply cmd expected code msg) =
+    "Cannot execute command " ++ show cmd ++
+       ", " ++ prettyExpected expected ++
+       ", " ++ prettyReceived code msg
+    where
+      prettyReceived :: Int -> ByteString -> String
+      prettyReceived co ms = "but received" ++ show co ++ " (" ++ BS.unpack ms ++ ")"
+      prettyExpected :: [ReplyCode] -> String
+      prettyExpected [x] = "expected reply code of " ++ show x
+      prettyExpected xs = "expected any reply code of " ++ show xs
+  displayException (NotConfirmed code msg) =
+    "This server cannot accept any data. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
+  displayException (AuthNegotiationFailed code msg) =
+    "authentication failed. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
+
+
 -- | Safe wrapper for running a client command over the SMTP
 -- connection.
 --
@@ -107,17 +136,7 @@ tryCommand conn cmd tries expectedReplies = do
             tryCommand conn cmd (tries - 1) expectedReplies
           | otherwise -> do
             bsClose (bsstream conn)
-            fail $ "cannot execute command " ++ show cmd ++
-                ", " ++ prettyExpected expectedReplies ++
-                ", " ++ prettyReceived code msg
-
-  where
-    prettyReceived :: Int -> ByteString -> String
-    prettyReceived co ms = "but received" ++ show co ++ " (" ++ BS.unpack ms ++ ")"
-
-    prettyExpected :: [ReplyCode] -> String
-    prettyExpected [x] = "expected reply code of " ++ show x
-    prettyExpected xs = "expected any reply code of " ++ show xs
+            throwIO $ UnexpectedReply cmd expectedReplies code msg
 
 -- | Read response from the stream. Response consists of the code
 -- and one or more lines of data.
@@ -143,6 +162,7 @@ tryCommand conn cmd tries expectedReplies = do
 -- (250, "8BITMIME\\nPIPELINING\nSIZE 42991616\\nAUTH LOGIN PLAIN XOAUTH2\\nDSN\\nENHANCEDSTATUSCODES")
 -- @
 --
+-- Throws 'SMTPException'.
 parseResponse :: BSStream -> IO (ReplyCode, ByteString)
 parseResponse st =
     do (code, bdy) <- readLines
@@ -157,6 +177,8 @@ parseResponse st =
 
 -- | Sends a 'Command' to the server. Function that performs all the logic
 -- for sending messages. Throws an exception if something goes wrong.
+--
+-- Throws 'SMTPException'.
 sendCommand
   :: SMTPConnection
   -> Command
@@ -164,7 +186,7 @@ sendCommand
 sendCommand (SMTPC conn _) (DATA dat) =
     do bsPutCrLf conn $ BS.pack "DATA"
        (code, msg) <- parseResponse conn
-       unless (code == 354) $ fail $ "this server cannot accept any data. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
+       unless (code == 354) $ throwIO $ NotConfirmed code msg
        mapM_ (sendLine . stripCR) $ BS.lines dat ++ [BS.pack "."]
        parseResponse conn
     where sendLine = bsPutCrLf conn
@@ -183,7 +205,7 @@ sendCommand (SMTPC conn _) (AUTH LOGIN username password) =
 sendCommand (SMTPC conn _) (AUTH at username password) =
     do bsPutCrLf conn command
        (code, msg) <- parseResponse conn
-       unless (code == 334) $ fail $ "authentication failed. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
+       unless (code == 334) $ throwIO $ AuthNegotiationFailed code msg
        bsPutCrLf conn $ BS.pack $ auth at (BS.unpack msg) username password
        parseResponse conn
     where command = BS.pack $ unwords ["AUTH", show at]
@@ -213,8 +235,9 @@ sendCommand (SMTPC conn _) meth =
 closeSMTP :: SMTPConnection -> IO ()
 closeSMTP (SMTPC conn _) = bsClose conn
 
--- | Sends a mail to the server. This is achieved by the 'tryCommand'.
--- If something is wrong, it raises an 'IOException'.
+-- | Sends a mail to the server.
+--
+-- Throws 'SMTPException'.
 sendMail :: String     -- ^ sender mail
          -> [String]   -- ^ receivers
          -> ByteString -- ^ data
