@@ -13,7 +13,7 @@ License:        BSD3
 License-file:   LICENSE
 Category:       Network
 Homepage:       https://github.com/jtdaugherty/HaskellNet
-Cabal-version:  >=1.8
+Cabal-version:  >=1.10
 Build-type:     Simple
 Tested-with:
   GHC ==7.8.4
