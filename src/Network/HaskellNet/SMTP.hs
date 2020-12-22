@@ -1,72 +1,79 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {- |
 
-This module provides functions for working with the SMTP protocol in the client side,
-including /opening/ and /closing/ connections, /sending commands/ to the server,
-/authenticate/ and /sending mails/.
+This module provides functions client side of the SMTP protocol.
 
-Here's a basic usage example:
+A basic usage example:
 
->
-> import Network.HaskellNet.SMTP
-> import Network.HaskellNet.Auth
-> import qualified Data.Text.Lazy as T
->
-> main = doSMTP "your.smtp.server.com" $ \conn ->
->    authSucceed <- authenticate PLAIN "username" "password" conn
->    if authSucceed
->        then sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello! This is the mail body!") conn
->        else print "Authentication failed."
+@
+\{\-\# LANGUAGE OverloadedStrings \#\-\}
+import "Network.HaskellNet.SMTP"
+import "Network.HaskellNet.Auth"
+import qualified "Data.Text.Lazy" as T
+import "System.Exit" (die)
+
+main :: IO ()
+main = 'doSMTP' "your.smtp.server.com" $ \\conn -> do -- (1)
+   authSucceed <- 'authenticate' 'PLAIN' "username" "password" conn -- (2)
+   if authSucceed
+   then 'sendPlainTextMail'
+          "receiver\@server.com"
+          "sender\@server.com"
+          "subject"
+          "Hello! This is the mail body!"
+          conn
+   else die "Authentication failed."
+@
 
 Notes for the above example:
 
-   * First the 'SMTPConnection' is opened with the 'doSMTP' function.
-     The connection should also be established with functions such as 'connectSMTP',
-     'connectSMTPPort' and 'doSMTPPort'.
-     With the @doSMTP*@ functions the connection is opened, then executed an action
-     with it and then closed automatically.
-     If the connection is opened with the @connectSMTP*@ functions you may want to
-     close it with the 'closeSMTP' function after using it.
-     It is also possible to create a 'SMTPConnection' from an already opened connection
-     stream ('BSStream') using the 'connectStream' or 'doSMTPStream' functions.
-
-     /NOTE:/ For /SSL\/TLS/ support you may establish the connection using
-             the functions (such as @connectSMTPSSL@) provided in the
-             @Network.HaskellNet.SMTP.SSL@ module of the
-             <http://hackage.haskell.org/package/HaskellNet-SSL HaskellNet-SSL>
-             package.
-
-   * The 'authenticate' function authenticates to the server with the specified 'AuthType'.
-     'PLAIN', 'LOGIN' and 'CRAM_MD5' 'AuthType's are available. It returns a 'Bool'
-     indicating either the authentication succeed or not.
-
-
-   * To send a mail you can use 'sendPlainTextMail' for plain text mail, or 'sendMimeMail'
-     for mime mail.
+   * @(1)@ First the @conn@::'SMTPConnection' is opened with the 'doSMTP' function,
+     we can use it to communicate with @SMTP@ server. See managing connection for more options..
+   * @(2)@ The 'authenticate' function authenticates to the server with the specified 'AuthType'.
+     It returns a 'Bool' indicating either the authentication succeed or not.
+     See authentication section..
+   * @(3)@ The 'sendPlainTextMail' is used to send a email a plain text email. See sending emails to see all
+     the functions.
+   * __N.B.__ For /SSL\/TLS/ support you may establish the connection using
+     the functions (such as @connectSMTPSSL@) provided by the @Network.HaskellNet.SMTP.SSL@ module
+     of the <http://hackage.haskell.org/package/HaskellNet-SSL HaskellNet-SSL> package.
 -}
 module Network.HaskellNet.SMTP
-    ( -- * Types
-      Command(..)
-    , Response(..)
-    , AuthType(..)
-    , SMTPConnection
-      -- * Establishing Connection
-    , connectSMTPPort
-    , connectSMTP
-    , connectStream
-      -- * Operation to a Connection
-    , sendCommand
-    , closeSMTP
-      -- * Other Useful Operations
-    , authenticate
-    , sendMail
+    ( -- * Workflow
+      -- $workflow
+
+      -- ** Controlling connections
+      -- $controlling-connections
+      SMTPConnection
+      -- $controlling-connections-1
     , doSMTPPort
     , doSMTP
     , doSMTPStream
+      -- $controlling-connections-2
+
+      -- ** Authentication
+    , authenticate
+      -- $authentication
+    , AuthType(..)
+
+      -- ** Sending emails
+      -- $sending-mail
     , sendPlainTextMail
     , sendMimeMail
     , sendMimeMail'
     , sendMimeMail2
+      -- * Low level commands
+      -- ** Establishing Connection
+      -- $low-level-connection
+    , connectSMTPPort
+    , connectSMTP
+    , connectStream
+    , closeSMTP
+    , sendMail
+      -- ** Operation to a Connection
+    , sendCommand
+    , Command(..)
+    , Response(..)
     )
     where
 
@@ -77,7 +84,7 @@ import Network.BSD (getHostName)
 import Network.Socket
 import Network.Compat
 
-import Control.Applicative ((<$>))
+import Control.Applicative
 import Control.Exception
 import Control.Monad (unless, when)
 
@@ -87,13 +94,76 @@ import Network.HaskellNet.Auth
 
 import Network.Mail.Mime
 import qualified Data.ByteString.Lazy as B
-import qualified Data.ByteString as S
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Text as T
 
+import GHC.Stack
+import Prelude
+
+
+-- $workflow
+-- The common workflow while working with the library is:
+--
+--   1. Establish a new connection
+--   2. Authenticate to the server
+--   3. Perform message sending
+--   4. Close connections
+--
+-- Steps 1 and 4 are combined together using @bracket@-like API, other than that
+-- the documentation sections are structured according to this workflow.
+
+-- $controlling-connections
+
+-- $controlling-connections-1
+-- The library encourages creation of 'SMTPConnection' using the @doSMTP@-family functions.
+-- These functions provide @bracket@-like pattern that manages connection state:
+-- creates a connection, passes it to the user defined @IO@ action and frees connection
+-- when the action exits. This approach is simple and exception safe.
+--
+-- __N.B.__ It should be noted that none of these functions implements keep alive of any kind,
+-- so the server is free to close the connection by timeout even the end of before the users
+-- action exits.
+--
+
+-- $controlling-connections-2
+--
+-- __NOTE:__ For /SSL\/TLS/ support you may establish the connection using
+-- the functions (such as @connectSMTPSSL@) provided by the @Network.HaskellNet.SMTP.SSL@ module
+-- of the <http://hackage.haskell.org/package/HaskellNet-SSL HaskellNet-SSL> package.
+--
+-- @bracket-@ style is not the only possible style for resource management,
+-- it's possible to use <http://hackage.haskell.org/package/resourcet resourcet> or
+-- <http://hackage.haskell.org/package/resource-pool resource-pool> as well. In both of the
+-- approaches you need to use low-level 'connectSTM*' and 'closeSMTP' functions.
+--
+-- Basic example using @resourcet@.
+--
+-- @
+-- \{\-\# LANGUAGE OverloadedStrings \#\-\}
+-- import "Network.HaskellNet.SMTP"
+-- import "Network.HaskellNet.Auth"
+-- import "Control.Monad.Trans.Resource"
+-- import qualified "Data.Text.Lazy" as T
+-- import "System.Exit" (die)
+--
+-- main :: IO ()
+-- main = 'Control.Monad.Trans.Resource.runResourceT' $ do
+--    (key, conn)
+--        <- 'Control.Monad.Trans.Resource.allocate'
+--               ('connectSMTP' "your.smtp.server.com")
+--               (closeSMTP)
+--    ... conn
+-- @
+-- This approach allows resource management even if the code does not form
+-- a stack.
+--
+
+
 -- The response field seems to be unused. It's saved at one place, but never
 -- retrieved.
+
+-- | All communication with server is done using @SMTPConnection@ value.
 data SMTPConnection = SMTPC { bsstream :: !BSStream, _response :: ![ByteString] }
 
 data Command = HELO String
@@ -262,20 +332,33 @@ closeSMTP c@(SMTPC conn _) =
        bsClose conn `catch` \(_ :: IOException) -> return ()
 -}
 
-{- |
-This function will return 'True' if the authentication succeeds.
-Here's an example of sending a mail with a server that requires
-authentication:
 
->    authSucceed <- authenticate PLAIN "username" "password" conn
->    if authSucceed
->        then sendPlainTextMail "receiver@server.com" "sender@server.com" "subject" (T.pack "Hello!") conn
->        else print "Authentication failed."
+-- $authentication
+
+{- |
+Authenticates user on the remote server. Returns 'True' if the authentication succeeds,
+otherwise returns 'False'.
+
+Usage example:
+
+@
+\{\-\# LANGUAGE OverloadedStrings \#\-\}
+authSucceed <- 'authenticate' 'PLAIN' "username" "password" conn
+if authSucceed
+then 'sendPlainTextMail' "receiver\@server.com" "sender\@server.com" "subject" "Hello!" conn
+else 'print' "Authentication failed."
+@
 -}
 authenticate :: AuthType -> UserName -> Password -> SMTPConnection -> IO Bool
 authenticate at username password conn  = do
         (code, _) <- sendCommand conn $ AUTH at username password
         return (code == 235)
+
+-- $authentication
+-- __N.B.__ The choice of the authentication method is currently explicit and the library
+-- does not analyze server capabilities reply for choosing the right method.
+--
+
 
 -- | sending a mail to a server. This is achieved by sendMessage.  If
 -- something is wrong, it raises an IOexception.
@@ -293,21 +376,47 @@ sendMail sender receivers dat conn = do
     -- Try the command once and @fail@ if the response isn't 250.
     sendAndCheck cmd = tryCommand conn cmd 1 [250, 251]
 
--- | doSMTPPort open a connection, and do an IO action with the
--- connection, and then close it.
+-- | 'doSMTPPort' opens a connection to the given port server and
+-- performs an IO action with the connection, and then close it.
+--
+-- 'SMTPConnection' is freed once 'IO' action scope is finished, it means that
+-- 'SMTPConnection' value should not escape the action scope.
 doSMTPPort :: String -> PortNumber -> (SMTPConnection -> IO a) -> IO a
 doSMTPPort host port =
     bracket (connectSMTPPort host port) closeSMTP
 
--- | doSMTP is similar to doSMTPPort, except that it does not require
--- port number but connects to the server with port 25.
+-- | 'doSMTP' is similar to 'doSMTPPort', except that it does not require
+-- port number and connects to the default SMTP port — 25.
 doSMTP :: String -> (SMTPConnection -> IO a) -> IO a
 doSMTP host = doSMTPPort host 25
 
--- | doSMTPStream is similar to doSMTPPort, except that its argument
--- is a Stream data instead of hostname and port number.
+-- | 'doSMTPStream' is similar to 'doSMTPPort', except that its argument
+-- is a Stream data instead of hostname and port number. Using this function
+-- you can embed connections maintained by the other libraries or add debug info
+-- in a common  way.
+--
+-- Using this function you can create an 'SMTPConnection' from an already
+-- opened connection stream. See more info on the 'BStream' abstraction in the
+-- "Network.HaskellNet.BSStream" module.
 doSMTPStream :: BSStream -> (SMTPConnection -> IO a) -> IO a
 doSMTPStream s = bracket (connectStream s) closeSMTP
+
+-- $sending-mail
+-- For sending emails there is a family of @sendMime@ functions, that wraps
+-- the low-level mime-mail ones.
+--
+-- +------------------------+------------+----------+-------------+
+-- | Method                 | Plain text | Html body| Attachments |
+-- |                        | body       |          |             |
+-- +========================+============+==========+=============+
+-- | 'sendPlainTextMail'    |     ✓      |    ✗     |     ✗       |
+-- +------------------------+------------+----------+-------------+
+-- | 'sendMimeMail'         |     ✓      |    ✓     | ✓ (filepath)|
+-- +------------------------+------------+----------+-------------+
+-- | 'sendMimeMail''        |    ✓       |    ✓     | ✓  (memory) |
+-- +------------------------+------------+----------+-------------+
+-- | 'sendMimeMail2'        |      Uses internal 'Mail' type      |
+-- +------------------------+-------------------------------------+
 
 -- | Send a plain text mail.
 sendPlainTextMail :: String  -- ^ receiver
@@ -318,10 +427,11 @@ sendPlainTextMail :: String  -- ^ receiver
                   -> IO ()
 sendPlainTextMail to from subject body con = do
     renderedMail <- renderMail' myMail
-    sendMail from [to] (lazyToStrict renderedMail) con
+    sendMail from [to] (B.toStrict renderedMail) con
     where
         myMail = simpleMail' (address to) (address from) (T.pack subject) body
         address = Address Nothing . T.pack
+
 
 -- | Send a mime mail. The attachments are included with the file path.
 sendMimeMail :: String               -- ^ receiver
@@ -336,7 +446,7 @@ sendMimeMail to from subject plainBody htmlBody attachments con = do
   myMail <- simpleMail (address to) (address from) (T.pack subject)
             plainBody htmlBody attachments
   renderedMail <- renderMail' myMail
-  sendMail from [to] (lazyToStrict renderedMail) con
+  sendMail from [to] (B.toStrict renderedMail) con
   where
     address = Address Nothing . T.pack
 
@@ -356,19 +466,17 @@ sendMimeMail' to from subject plainBody htmlBody attachments con = do
   where
     address = Address Nothing . T.pack
 
-sendMimeMail2 :: Mail -> SMTPConnection -> IO ()
+-- | Sends email in generated using 'mime-mail' package.
+--
+-- Throws 'UserError' @::@ 'IOError' if recipient address not specified.
+sendMimeMail2 :: HasCallStack => Mail -> SMTPConnection -> IO ()
 sendMimeMail2 mail con = do
     let (Address _ from) = mailFrom mail
         recps = map (T.unpack . addressEmail)
                      $ (mailTo mail ++ mailCc mail ++ mailBcc mail)
     when (null recps) $ fail "no receiver specified."
     renderedMail <- renderMail' $ mail { mailBcc = [] }
-    sendMail (T.unpack from) recps (lazyToStrict renderedMail) con
-
--- haskellNet uses strict bytestrings
--- TODO: look at making haskellnet lazy
-lazyToStrict :: B.ByteString -> S.ByteString
-lazyToStrict = B.toStrict
+    sendMail (T.unpack from) recps (B.toStrict renderedMail) con
 
 crlf :: BS.ByteString
 crlf = BS.pack "\r\n"
