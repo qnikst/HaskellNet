@@ -7,12 +7,13 @@ Description:    This package provides client support for the POP3,
 Version:        0.5.3
 Copyright:      (c) 2006 Jun Mukai
 Author:         Jun Mukai
-Maintainer:     Jonathan Daugherty <cygnus@foobox.com>,
+Maintainer:     Alexander Vershilov <alexander.vershilov@sirius.online>,
+                Jonathan Daugherty <cygnus@foobox.com>,
                 Leza Morais Lutonda <lemol-c@outlook.com>
 License:        BSD3
 License-file:   LICENSE
 Category:       Network
-Homepage:       https://github.com/jtdaugherty/HaskellNet
+Homepage:       https://github.com/qnikst/HaskellNet
 Cabal-version:  >=1.10
 Build-type:     Simple
 Tested-with:
@@ -32,7 +33,7 @@ Extra-Source-Files:
 
 Source-Repository head
   type:     git
-  location: git://github.com/jtdaugherty/HaskellNet.git
+  location: git://github.com/qnikst/HaskellNet.git
 
 Flag network-bsd
  description: Use network-bsd
