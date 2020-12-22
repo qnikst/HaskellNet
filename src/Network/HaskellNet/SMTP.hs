@@ -265,61 +265,50 @@ doSMTPStream s = bracket (connectStream s) closeSMTP
 -- +------------------------+-------------------------------------+
 
 -- | Send a plain text mail.
-sendPlainTextMail :: String  -- ^ receiver
-                  -> String  -- ^ sender
-                  -> String  -- ^ subject
+sendPlainTextMail :: Address -- ^ receiver
+                  -> Address -- ^ sender
+                  -> T.Text  -- ^ subject
                   -> LT.Text -- ^ body
                   -> SMTPConnection -- ^ the connection
                   -> IO ()
 sendPlainTextMail to from subject body con = do
-    renderedMail <- renderMail' myMail
+    renderedMail <- renderMail' $! simpleMail' to from subject body
     sendMail from [to] (B.toStrict renderedMail) con
-    where
-        myMail = simpleMail' (address to) (address from) (T.pack subject) body
-        address = Address Nothing . T.pack
 
 
 -- | Send a mime mail. The attachments are included with the file path.
-sendMimeMail :: String               -- ^ receiver
-             -> String               -- ^ sender
-             -> String               -- ^ subject
+sendMimeMail :: Address              -- ^ receiver
+             -> Address              -- ^ sender
+             -> T.Text               -- ^ subject
              -> LT.Text              -- ^ plain text body
              -> LT.Text              -- ^ html body
              -> [(T.Text, FilePath)] -- ^ attachments: [(content_type, path)]
              -> SMTPConnection
              -> IO ()
 sendMimeMail to from subject plainBody htmlBody attachments con = do
-  myMail <- simpleMail (address to) (address from) (T.pack subject)
-            plainBody htmlBody attachments
+  myMail <- simpleMail to from subject plainBody htmlBody attachments
   renderedMail <- renderMail' myMail
   sendMail from [to] (B.toStrict renderedMail) con
-  where
-    address = Address Nothing . T.pack
 
 -- | Send a mime mail. The attachments are included with in-memory 'ByteString'.
-sendMimeMail' :: String                         -- ^ receiver
-              -> String                         -- ^ sender
-              -> String                         -- ^ subject
+sendMimeMail' :: Address                        -- ^ receiver
+              -> Address                        -- ^ sender
+              -> T.Text                         -- ^ subject
               -> LT.Text                        -- ^ plain text body
               -> LT.Text                        -- ^ html body
               -> [(T.Text, T.Text, B.ByteString)] -- ^ attachments: [(content_type, file_name, content)]
               -> SMTPConnection
               -> IO ()
 sendMimeMail' to from subject plainBody htmlBody attachments con = do
-  let myMail = simpleMailInMemory (address to) (address from) (T.pack subject)
-                                  plainBody htmlBody attachments
+  let myMail = simpleMailInMemory to from subject plainBody htmlBody attachments
   sendMimeMail2 myMail con
-  where
-    address = Address Nothing . T.pack
 
 -- | Sends email in generated using 'mime-mail' package.
 --
 -- Throws 'UserError' @::@ 'IOError' if recipient address not specified.
 sendMimeMail2 :: HasCallStack => Mail -> SMTPConnection -> IO ()
 sendMimeMail2 mail con = do
-    let (Address _ from) = mailFrom mail
-        recps = map (T.unpack . addressEmail)
-                     $ (mailTo mail ++ mailCc mail ++ mailBcc mail)
+    let recps = mailTo mail ++ mailCc mail ++ mailBcc mail
     when (null recps) $ fail "no receiver specified."
     renderedMail <- renderMail' $ mail { mailBcc = [] }
-    sendMail (T.unpack from) recps (B.toStrict renderedMail) con
+    sendMail (mailFrom mail) recps (B.toStrict renderedMail) con

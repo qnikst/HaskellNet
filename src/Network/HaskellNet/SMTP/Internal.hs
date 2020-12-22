@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DerivingStrategies #-}
 -- |
 -- Internal functions that are used in the SMTP protocol,
@@ -14,6 +15,8 @@ module Network.HaskellNet.SMTP.Internal
   , sendCommand
   , sendMail
   , closeSMTP
+    -- * Reexports
+  , Address(..)
   ) where
 
 import Control.Exception
@@ -21,10 +24,14 @@ import Control.Monad (unless)
 import Data.Char (isDigit)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import Data.Typeable
 
 import Network.HaskellNet.Auth
 import Network.HaskellNet.BSStream
+
+import Network.Mail.Mime
 
 import Prelude
 
@@ -41,8 +48,8 @@ data SMTPConnection = SMTPC {
 -- Supports basic and extended SMTP protocol without TLS support.
 data Command = HELO String
              | EHLO String
-             | MAIL String
-             | RCPT String
+             | MAIL T.Text
+             | RCPT T.Text
              | DATA ByteString
              | EXPN String
              | VRFY String
@@ -209,21 +216,21 @@ sendCommand (SMTPC conn _) (AUTH at username password) =
        parseResponse conn
     where command = BS.pack $ unwords ["AUTH", show at]
 sendCommand (SMTPC conn _) meth =
-    do bsPutCrLf conn $ BS.pack command
+    do bsPutCrLf conn $ command
        parseResponse conn
     where command = case meth of
-                      (HELO param) -> "HELO " ++ param
-                      (EHLO param) -> "EHLO " ++ param
-                      (MAIL param) -> "MAIL FROM:<" ++ param ++ ">"
-                      (RCPT param) -> "RCPT TO:<" ++ param ++ ">"
-                      (EXPN param) -> "EXPN " ++ param
-                      (VRFY param) -> "VRFY " ++ param
-                      (HELP msg)   -> if null msg
+                      (HELO param) -> BS.pack $ "HELO " ++ param
+                      (EHLO param) -> BS.pack $ "EHLO " ++ param
+                      (MAIL param) -> T.encodeUtf8 $ "MAIL FROM:<" <> param <> ">"
+                      (RCPT param) -> T.encodeUtf8 $ "RCPT TO:<" <> param <> ">"
+                      (EXPN param) -> BS.pack $ "EXPN " ++ param
+                      (VRFY param) -> BS.pack $ "VRFY " ++ param
+                      (HELP msg)   -> BS.pack $ if null msg
                                         then "HELP\r\n"
                                         else "HELP " ++ msg
-                      NOOP         -> "NOOP"
-                      RSET         -> "RSET"
-                      QUIT         -> "QUIT"
+                      NOOP         -> BS.pack $ "NOOP"
+                      RSET         -> BS.pack $ "RSET"
+                      QUIT         -> BS.pack $ "QUIT"
                       (DATA _)     ->
                           error "BUG: DATA pattern should be matched by sendCommand patterns"
                       (AUTH {})     ->
@@ -237,14 +244,14 @@ closeSMTP (SMTPC conn _) = bsClose conn
 -- | Sends a mail to the server.
 --
 -- Throws 'SMTPException'.
-sendMail :: String     -- ^ sender mail
-         -> [String]   -- ^ receivers
+sendMail :: Address -- ^ sender mail
+         -> [Address] -- ^ receivers
          -> ByteString -- ^ data
          -> SMTPConnection
          -> IO ()
 sendMail sender receivers dat conn = do
-                 sendAndCheck (MAIL sender)
-                 mapM_ (sendAndCheck . RCPT) receivers
+                 sendAndCheck (MAIL (addressEmail sender))
+                 mapM_ (sendAndCheck . RCPT . addressEmail) receivers
                  sendAndCheck (DATA dat)
                  return ()
   where
