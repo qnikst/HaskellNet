@@ -14,6 +14,7 @@ import qualified Data.Text as T
 type UserName = String
 type Password = String
 
+-- | Authorization types supported by the <https://www.ietf.org/rfc/rfc4954.txt RFC5954>
 data AuthType = PLAIN
               | LOGIN
               | CRAM_MD5

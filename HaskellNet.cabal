@@ -48,6 +48,7 @@ Library
     Network.HaskellNet.IMAP.Types
     Network.HaskellNet.IMAP.Parsers
     Network.HaskellNet.SMTP
+    Network.HaskellNet.SMTP.Internal
     Network.HaskellNet.POP3
     Network.HaskellNet.POP3.Connection
     Network.HaskellNet.POP3.Types
