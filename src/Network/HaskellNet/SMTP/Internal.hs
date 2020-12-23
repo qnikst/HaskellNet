@@ -30,6 +30,7 @@ module Network.HaskellNet.SMTP.Internal
   , sendCommand
   , sendMail
   , closeSMTP
+  , quitSMTP
     -- * Reexports
   , Address(..)
   ) where
@@ -312,10 +313,18 @@ sendCommand (SMTPC conn _) meth =
                       (AUTH {})     ->
                           error "BUG: AUTH pattern should be matched by sendCommand patterns"
 
--- | Closes the connection.  This function send the QUIT method, so you
--- do not have to QUIT method explicitly.
+-- | Sends quit to the server. Connection must be terminated afterwards.
+quitSMTP :: SMTPConnection -> IO ()
+quitSMTP c = do
+  _ <- tryCommand c QUIT 1 [221]
+  pure ()
+
+-- | Sends quit and closes connection immediately after receiving reply.
+--
+-- This method is expected to be used with the low level API such as pools
+-- or resource frameworks.
 closeSMTP :: SMTPConnection -> IO ()
-closeSMTP (SMTPC conn _) = bsClose conn
+closeSMTP c@(SMTPC conn _) = quitSMTP c `finally` bsClose conn
 
 -- | Sends a mail to the server.
 --

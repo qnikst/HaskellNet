@@ -228,8 +228,10 @@ authenticate at username password conn  = do
 -- 'SMTPConnection' is freed once 'IO' action scope is finished, it means that
 -- 'SMTPConnection' value should not escape the action scope.
 doSMTPPort :: String -> PortNumber -> (SMTPConnection -> IO a) -> IO a
-doSMTPPort host port =
-    bracket (connectSMTPPort host port) closeSMTP
+doSMTPPort host port f =
+    bracket (connectSMTPPort host port)
+            (\(SMTPC conn _) -> bsClose conn)
+            (\c -> f c >>= \x -> quitSMTP c >> pure x)
 
 -- | 'doSMTP' is similar to 'doSMTPPort', except that it does not require
 -- port number and connects to the default SMTP port — 25.
@@ -245,7 +247,10 @@ doSMTP host = doSMTPPort host 25
 -- opened connection stream. See more info on the 'BStream' abstraction in the
 -- "Network.HaskellNet.BSStream" module.
 doSMTPStream :: BSStream -> (SMTPConnection -> IO a) -> IO a
-doSMTPStream s = bracket (connectStream s) closeSMTP
+doSMTPStream s f =
+  bracket (connectStream s)
+          (\(SMTPC conn _) -> bsClose conn)
+          (\c -> f c >>= \x -> quitSMTP c >> pure x)
 
 -- $sending-mail
 -- For sending emails there is a family of @sendMime@ functions, that wraps
