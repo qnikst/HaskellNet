@@ -4,6 +4,21 @@
 -- Internal functions that are used in the SMTP protocol,
 -- you may need these module in case if you want to implement additional
 -- functionality that does not exist in the "Network.HaskellNet.SMTP".
+--
+-- __Example__.
+--
+-- One example could be sending multiple emails over the same stream
+-- in order to use that you may want to use 'RSET' command, so you can implement:
+--
+-- @
+-- import "Network.HaskellNet.SMTP.Internal"
+--
+-- resetConnection :: SMTPConnection -> IO ()
+-- resetConnection conn = do
+--    (code, _) <- 'sendCommand' conn 'RSET'
+--    'unless' (code == 250) $ 'throwIO' $ 'UnexpectedReply' 'RSET' [250] code ""
+-- @
+--
 module Network.HaskellNet.SMTP.Internal
   ( SMTPConnection(..)
   , Command(..)
@@ -43,22 +58,83 @@ data SMTPConnection = SMTPC {
   _response :: ![ByteString]
   }
 
--- | SMT commands.
+-- | SMTP commands.
 --
 -- Supports basic and extended SMTP protocol without TLS support.
-data Command = HELO T.Text
-             | EHLO T.Text
-             | MAIL T.Text
-             | RCPT T.Text
-             | DATA ByteString
-             | EXPN T.Text
-             | VRFY T.Text
-             | HELP T.Text
-             | AUTH AuthType UserName Password
-             | NOOP
-             | RSET
-             | QUIT
-               deriving (Show, Eq)
+data Command
+  = -- | The @HELO@ command initiates the SMTP session conversation. The client greets the server and introduces itself.
+    -- As a rule, HELO is attributed with an argument that specifies the domain name or IP address of the SMTP client.
+    --
+    -- Success: 250
+    -- Failure: 504, 550
+    HELO T.Text
+  | -- | @EHLO@ is an alternative to HELO for servers that support the SMTP service extensions (ESMTP)
+    --
+    -- Success: 250
+    -- Failure: 502, 504, 550
+    EHLO T.Text
+  | -- | @MAIL FROM@ command initiates a mail transfer. As an argument, MAIL FROM includes a sender mailbox (reverse-path)
+    -- can accept optional parameters.
+    --
+    -- Success: 250
+    --
+    -- Failure: 451, 452, 455, 503, 550, 552, 553, 555
+    MAIL T.Text
+  | -- | The @RCPT TO@ command specifies exactly one recipient.
+    --
+    -- Success: 250 251
+    --
+    -- Failure: 450 451 452 455 503 550 551 552 553 555
+    RCPT T.Text
+  | -- | With the @DATA@ command, the client asks the server for permission to transfer the mail data.
+    --
+    -- Success: 250, 354
+    --
+    -- Failure: 450 451 452 503 550 552 554
+    --
+    -- Client just sends data and after receiving 354 starts streaming email, terminating transfer by
+    -- sending @\r\n.\r\n@.
+    DATA ByteString
+  | -- |
+    -- @EXPN@ is used to verify whether a mailing list in the argument exists on the local host.
+    -- The positive response will specify the membership of the recipients.
+    --
+    -- Success: 250 252
+    --
+    -- Failure: 502 504 550
+    EXPN T.Text
+  | -- |
+    -- @VRFY@ is used to verify whether a mailbox in the argument exists on the local host.
+    -- The server response includes the user’s mailbox and may include the user’s full name.
+    --
+    -- Success: 250 251 252
+    --
+    -- Failure: 502 504 550 551 553
+    VRFY T.Text
+  | -- |
+    -- With the @HELP@ command, the client requests a list of commands the server supports, may request
+    -- help for specific command
+    --
+    -- Success: 211 214
+    --
+    -- Failure: 502 504
+    HELP T.Text
+  | -- | Authorization support
+    AUTH AuthType UserName Password
+  | -- | @NOOP@  can be used to verify if the connection is alive
+    --
+    -- Success: 250
+    NOOP
+  | -- | @RSET@ Resets the state
+    --
+    -- Success: 250
+    RSET
+  | -- | @QUIT@ asks server to close connection. Client should terminate the connection when receives
+    -- status.
+    --
+    -- Success: 221
+    QUIT
+    deriving (Show, Eq)
 
 -- | Code reply from the server. It's always 3 digit integer.
 type ReplyCode = Int
