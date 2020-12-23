@@ -73,7 +73,6 @@ module Network.HaskellNet.SMTP
       -- ** Operation to a Connection
     , sendCommand
     , Command(..)
-    , Response(..)
     )
     where
 

@@ -22,7 +22,6 @@
 module Network.HaskellNet.SMTP.Internal
   ( SMTPConnection(..)
   , Command(..)
-  , Response(..)
   , SMTPException(..)
   , ReplyCode
   , tryCommand
@@ -139,31 +138,6 @@ data Command
 
 -- | Code reply from the server. It's always 3 digit integer.
 type ReplyCode = Int
-
--- | Possible server response.
-data Response = Ok
-              | SystemStatus
-              | HelpMessage
-              | ServiceReady
-              | ServiceClosing
-              | UserNotLocal
-              | CannotVerify
-              | StartMailInput
-              | ServiceNotAvailable
-              | MailboxUnavailable
-              | ErrorInProcessing
-              | InsufficientSystemStorage
-              | SyntaxError
-              | ParameterError
-              | CommandNotImplemented
-              | BadSequence
-              | ParameterNotImplemented
-              | MailboxUnavailableError
-              | UserNotLocalError
-              | ExceededStorage
-              | MailboxNotAllowed
-              | TransactionFailed
-                deriving (Show, Eq)
 
 -- | Exceptions that can happen during communication.
 data SMTPException
