@@ -34,8 +34,6 @@ jobs:
             allow-failure: false
           - ghc: 8.4.4
             allow-failure: false
-          - ghc: 8.2.2
-            allow-failure: false
       fail-fast: false
     steps:
       - name: apt
