@@ -4,7 +4,7 @@ Description:    This package provides client support for the POP3,
                 SMTP, and IMAP protocols.  NOTE: this package will be
                 split into smaller, protocol-specific packages in the
                 future.
-Version:        0.5.3
+Version:        0.6
 Copyright:      (c) 2006 Jun Mukai
 Author:         Jun Mukai
 Maintainer:     Alexander Vershilov <alexander.vershilov@sirius.online>,
@@ -25,6 +25,7 @@ Tested-with:
 Extra-Source-Files:
   CHANGELOG
   README.md
+  Updating.md
   example/*.hs
 
 Source-Repository head

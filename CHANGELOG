@@ -1,3 +1,22 @@
+0.6 (2020-12-27)
+----------------
+  - sendMail API was simplified (see Updating.md for details)
+  - Functions for graceful close were introduced.
+  - Use Text type instead of String internally.
+  - Use mime-mail.Address type instead of String for representing
+    addresses. (Issues #78, #59)
+  - Introduce SMTP exceptions family and move to using that
+    from fail method.
+  - Fixes possible double handle close in case of exceptions (Issue #76)
+  - SMTP: Fix issue with extra flushes. Now there are twice
+    as few messages during communication and that largely improves
+    communication speed.
+  - Module HaskellNet.SMTP.Internal was introduced. It contains
+    internal functions that may be useful when implementing primitives.
+    There is no API stability guarantees on the module.
+  - SMTP documentation largely improved
+  - Package moved from base64-string to base64 package (Issue #61)
+
 0.5.3 (2020-12-22)
 ------------------
 
