@@ -158,6 +158,8 @@ data SMTPException
   | AuthNegotiationFailed ReplyCode BS.ByteString
     -- | Can't send email because no recipients were specified.
   | NoRecipients Mail
+    -- | Received an unexpected greeting from the server.
+  | UnexpectedGreeting ReplyCode
   deriving (Show)
   deriving (Typeable)
 
@@ -178,6 +180,8 @@ instance Exception SMTPException where
     "Authentication failed. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
   displayException (NoRecipients _mail) =
     "No recipients were specified"
+  displayException (UnexpectedGreeting code) =
+    "Expected greeting from the server, but got: " <> show code
 
 
 -- | Safe wrapper for running a client command over the SMTP
@@ -341,7 +345,6 @@ sendMailData sender receivers dat conn = do
    sendAndCheck (DATA dat)
    return ()
   where
-    -- Try the command once and @fail@ if the response isn't 250.
     sendAndCheck cmd = tryCommand conn cmd 1 [250, 251]
 
 -- | Just a crlf constant.

@@ -72,6 +72,7 @@ module Network.HaskellNet.SMTP
     , connectStream
     , closeSMTP
     , gracefullyCloseSMTP
+    , SMTPException(..)
     ) where
 
 import Network.HaskellNet.BSStream
@@ -174,13 +175,16 @@ connectSMTP :: String     -- ^ name of the server
             -> IO SMTPConnection
 connectSMTP = flip connectSMTPPort 25
 
--- | create SMTPConnection from already connected Stream
-connectStream :: BSStream -> IO SMTPConnection
+-- | Create SMTPConnection from already connected Stream
+--
+-- Throws @CantConnect :: SMTPException@ in case if got illegal
+-- greeting.
+connectStream :: HasCallStack => BSStream -> IO SMTPConnection
 connectStream st =
     do (code1, _) <- parseResponse st
-       unless (code1 == 220) $
-              do bsClose st
-                 fail "cannot connect to the server"
+       unless (code1 == 220) $ do
+         bsClose st
+         throwIO $ UnexpectedGreeting code1
        senderHost <- T.pack <$> getHostName
        msg <- tryCommand (SMTPC st []) (EHLO senderHost) 3 [250]
        return (SMTPC st (tail $ BS.lines msg))
