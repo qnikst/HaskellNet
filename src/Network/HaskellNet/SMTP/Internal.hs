@@ -27,7 +27,7 @@ module Network.HaskellNet.SMTP.Internal
   , tryCommand
   , parseResponse
   , sendCommand
-  , sendMail
+  , sendMailData
   , closeSMTP
   , gracefullyCloseSMTP
   , quitSMTP
@@ -156,6 +156,8 @@ data SMTPException
   | NotConfirmed ReplyCode BS.ByteString
     -- | The server does not support current authentication method
   | AuthNegotiationFailed ReplyCode BS.ByteString
+    -- | Can't send email because no recipients were specified.
+  | NoRecipients Mail
   deriving (Show)
   deriving (Typeable)
 
@@ -173,7 +175,9 @@ instance Exception SMTPException where
   displayException (NotConfirmed code msg) =
     "This server cannot accept any data. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
   displayException (AuthNegotiationFailed code msg) =
-    "authentication failed. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
+    "Authentication failed. code: " ++ show code ++ ", msg: " ++ BS.unpack msg
+  displayException (NoRecipients _mail) =
+    "No recipients were specified"
 
 
 -- | Safe wrapper for running a client command over the SMTP
@@ -326,16 +330,16 @@ gracefullyCloseSMTP c@(SMTPC conn _) = quitSMTP c `finally` bsClose conn
 -- | Sends a mail to the server.
 --
 -- Throws 'SMTPException'.
-sendMail :: Address -- ^ sender mail
+sendMailData :: Address -- ^ sender mail
          -> [Address] -- ^ receivers
          -> ByteString -- ^ data
          -> SMTPConnection
          -> IO ()
-sendMail sender receivers dat conn = do
-                 sendAndCheck (MAIL (addressEmail sender))
-                 mapM_ (sendAndCheck . RCPT . addressEmail) receivers
-                 sendAndCheck (DATA dat)
-                 return ()
+sendMailData sender receivers dat conn = do
+   sendAndCheck (MAIL (addressEmail sender))
+   mapM_ (sendAndCheck . RCPT . addressEmail) receivers
+   sendAndCheck (DATA dat)
+   return ()
   where
     -- Try the command once and @fail@ if the response isn't 250.
     sendAndCheck cmd = tryCommand conn cmd 1 [250, 251]

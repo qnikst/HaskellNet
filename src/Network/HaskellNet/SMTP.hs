@@ -9,19 +9,20 @@ A basic usage example:
 \{\-\# LANGUAGE OverloadedStrings \#\-\}
 import "Network.HaskellNet.SMTP"
 import "Network.HaskellNet.Auth"
-import qualified "Data.Text.Lazy" as T
+import "Network.Mail.Mime"
 import "System.Exit" (die)
 
 main :: IO ()
 main = 'doSMTP' "your.smtp.server.com" $ \\conn -> do -- (1)
    authSucceed <- 'authenticate' 'PLAIN' "username" "password" conn -- (2)
    if authSucceed
-   then 'sendPlainTextMail'
-          "receiver\@server.com"
-          "sender\@server.com"
-          "subject"
-          "Hello! This is the mail body!"
-          conn
+   then do
+     let mail = 'Network.Mail.Mime.simpleMail''
+           "receiver\@server.com"
+           "sender\@server.com"
+           "subject"
+           "Hello! This is the mail body!"
+     sendMail mail conn -- (3)
    else die "Authentication failed."
 @
 
@@ -31,7 +32,7 @@ Notes for the above example:
      We can use this connection to communicate with @SMTP@ server.
    * @(2)@ The 'authenticate' function authenticates to the server with the specified 'AuthType'.
      It returns a 'Bool' indicating either the authentication succeed or not.
-   * @(3)@ The 'sendPlainTextMail' is used to send a email a plain text email.
+   * @(3)@ The 'sendMail' is used to send a email a plain text email.
 
 __N.B.__ For /SSL\/TLS/ support you may establish the connection using
   the functions (such as @connectSMTPSSL@) provided by the @Network.HaskellNet.SMTP.SSL@ module
@@ -57,6 +58,8 @@ module Network.HaskellNet.SMTP
 
       -- ** Sending emails
       -- $sending-mail
+    , sendMail
+      -- *** Deprecated functions
     , sendPlainTextMail
     , sendMimeMail
     , sendMimeMail'
@@ -69,9 +72,7 @@ module Network.HaskellNet.SMTP
     , connectStream
     , closeSMTP
     , gracefullyCloseSMTP
-    , sendMail
-    )
-    where
+    ) where
 
 import Network.HaskellNet.BSStream
 import qualified Data.ByteString.Char8 as BS
@@ -138,7 +139,6 @@ import Network.HaskellNet.SMTP.Internal
 -- import "Network.HaskellNet.SMTP"
 -- import "Network.HaskellNet.Auth"
 -- import "Control.Monad.Trans.Resource"
--- import qualified "Data.Text.Lazy" as T
 -- import "System.Exit" (die)
 --
 -- main :: IO ()
@@ -243,35 +243,57 @@ doSMTPStream s f =
           (\c -> f c >>= \x -> quitSMTP c >> pure x)
 
 -- $sending-mail
--- For sending emails there is a family of @sendMime@ functions, that wraps
--- the low-level mime-mail ones.
 --
--- +------------------------+------------+----------+-------------+
--- | Method                 | Plain text | Html body| Attachments |
--- |                        | body       |          |             |
--- +========================+============+==========+=============+
--- | 'sendPlainTextMail'    |     ✓      |    ✗     |     ✗       |
--- +------------------------+------------+----------+-------------+
--- | 'sendMimeMail'         |     ✓      |    ✓     | ✓ (filepath)|
--- +------------------------+------------+----------+-------------+
--- | 'sendMimeMail''        |    ✓       |    ✓     | ✓  (memory) |
--- +------------------------+------------+----------+-------------+
--- | 'sendMimeMail2'        |      Uses internal 'Mail' type      |
--- +------------------------+-------------------------------------+
+-- Since version 0.6 there is only one function 'sendMail' that sends a email
+-- rendered using mime-mail package. Historically there is a family of @send*Mail@
+-- functions that provide simpler interface but they basically mimic the functions
+-- from the mime-mail package, and it's encouraged to use those functions directly.
+--
+-- +------------------------+------------+----------+-------------+-------------+
+-- | Method                 | Plain text | Html body| Attachments |  Note       |
+-- |                        | body       |          |             |             |
+-- +========================+============+==========+=============+=============+
+-- | 'sendMail'             |   Uses mail-mime 'Mail' type        |             |
+-- +------------------------+------------+----------+-------------+-------------+
+-- | 'sendPlainTextMail'    |     ✓      |    ✗     |     ✗       | deprecated  |
+-- +------------------------+------------+----------+-------------+-------------+
+-- | 'sendMimeMail'         |     ✓      |    ✓     | ✓ (filepath)| deprecated  |
+-- +------------------------+------------+----------+-------------+-------------+
+-- | 'sendMimeMail''        |    ✓       |    ✓     | ✓  (memory) | deprecated  |
+-- +------------------------+------------+----------+-------------+-------------+
+-- | 'sendMimeMail2'        |   Uses mail-mime 'Mail' type        | deprecated  |
+-- +------------------------+-------------------------------------+-------------+
 
 -- | Send a plain text mail.
+--
+-- __DEPRECATED__. Instead of @sendPlainTextMail to from subject plainBody@ use:
+--
+-- @
+-- mail = 'Network.Mail.Mime.simpleMail'' to from subject plainBody
+-- sendMail mail conn
+-- @
+{-# DEPRECATED sendPlainTextMail "Use 'sendMail (Network.Mail.Mime.simpleMail' to from subject plainBody)' instead" #-}
 sendPlainTextMail :: Address -- ^ receiver
                   -> Address -- ^ sender
                   -> T.Text  -- ^ subject
                   -> LT.Text -- ^ body
                   -> SMTPConnection -- ^ the connection
                   -> IO ()
-sendPlainTextMail to from subject body con = do
-    renderedMail <- renderMail' $! simpleMail' to from subject body
-    sendMail from [to] (B.toStrict renderedMail) con
+sendPlainTextMail to from subject body con =
+  let mail = simpleMail' to from subject body
+  in sendMail mail con
 
 
 -- | Send a mime mail. The attachments are included with the file path.
+--
+-- __DEPRECATED__. Instead of @sendMimeMail to from subject plainBody htmlBody attachments@ use:
+--
+-- @
+-- mail <- 'Network.Mail.Mime.simpleMail' to from subject plainBody htmlBody attachments
+-- sendMail mail conn
+-- @
+--
+{-# DEPRECATED sendMimeMail "Use 'Network.Mail.Mime.simpleMail to from subject plainBody htmlBody attachments >>= \\mail -> sendMail mail conn' instead" #-}
 sendMimeMail :: Address              -- ^ receiver
              -> Address              -- ^ sender
              -> T.Text               -- ^ subject
@@ -282,10 +304,18 @@ sendMimeMail :: Address              -- ^ receiver
              -> IO ()
 sendMimeMail to from subject plainBody htmlBody attachments con = do
   myMail <- simpleMail to from subject plainBody htmlBody attachments
-  renderedMail <- renderMail' myMail
-  sendMail from [to] (B.toStrict renderedMail) con
+  sendMail myMail con
 
 -- | Send a mime mail. The attachments are included with in-memory 'ByteString'.
+--
+-- __DEPRECATED__. Instead of @sendMimeMail to from subject plainBody htmlBody attachments@ use:
+--
+-- @
+-- let mail = Network.Mail.Mime.simpleMailInMemory to from subject plainBody htmlBody attachments
+-- sendMail mail conn
+-- @
+--
+{-# DEPRECATED sendMimeMail' "Use 'sendMail (Network.Mail.Mime.simpleMailInMemory to from subject plainBody htmlBody attachments) conn'" #-}
 sendMimeMail' :: Address                        -- ^ receiver
               -> Address                        -- ^ sender
               -> T.Text                         -- ^ subject
@@ -296,14 +326,25 @@ sendMimeMail' :: Address                        -- ^ receiver
               -> IO ()
 sendMimeMail' to from subject plainBody htmlBody attachments con = do
   let myMail = simpleMailInMemory to from subject plainBody htmlBody attachments
-  sendMimeMail2 myMail con
+  sendMail myMail con
 
 -- | Sends email in generated using 'mime-mail' package.
 --
 -- Throws 'UserError' @::@ 'IOError' if recipient address not specified.
+{-# DEPRECATED sendMimeMail2 "Use sendMail instead" #-}
 sendMimeMail2 :: HasCallStack => Mail -> SMTPConnection -> IO ()
-sendMimeMail2 mail con = do
-    let recps = mailTo mail ++ mailCc mail ++ mailBcc mail
-    when (null recps) $ fail "no receiver specified."
-    renderedMail <- renderMail' $ mail { mailBcc = [] }
-    sendMail (mailFrom mail) recps (B.toStrict renderedMail) con
+sendMimeMail2 = sendMail
+
+-- | Sends email using 'Mail' type from the mime-mail package.
+--
+-- Sender is taken from the 'mailFrom' field of the @mail@. Message
+-- is sent to all the recipients in the 'mailTo', 'mailCc', 'mailBcc' fields.
+-- But 'mailBcc' emails are not visible to other recipients as it should be.
+--
+-- @since 0.6
+sendMail :: HasCallStack => Mail -> SMTPConnection -> IO ()
+sendMail mail conn = do
+  let recps = mailTo mail ++ mailCc mail ++ mailBcc mail
+  when (null recps) $ throwIO $ NoRecipients mail
+  renderedMail <- renderMail' $ mail { mailBcc = [] }
+  sendMailData (mailFrom mail) recps (B.toStrict renderedMail) conn
