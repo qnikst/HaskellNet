@@ -14,7 +14,7 @@ License:        BSD3
 License-file:   LICENSE
 Category:       Network
 Homepage:       https://github.com/qnikst/HaskellNet
-Cabal-version:  >=1.10
+Cabal-version:  1.22
 Build-type:     Simple
 Tested-with:
   GHC ==8.4.4
@@ -59,6 +59,8 @@ Library
     Network.Compat
     Text.Packrat.Pos
     Text.Packrat.Parse
+  Reexported-modules:
+    Network.Mail.Mime
 
   Build-Depends:
     base >= 4.3 && < 4.15,
