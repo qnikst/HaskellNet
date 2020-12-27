@@ -29,6 +29,7 @@ module Network.HaskellNet.SMTP.Internal
   , sendCommand
   , sendMail
   , closeSMTP
+  , gracefullyCloseSMTP
   , quitSMTP
     -- * Reexports
   , Address(..)
@@ -61,6 +62,9 @@ data SMTPConnection = SMTPC {
 -- | SMTP commands.
 --
 -- Supports basic and extended SMTP protocol without TLS support.
+--
+-- For each command we provide list of the expected reply codes that happens in success and failure cases
+-- respectively.
 data Command
   = -- | The @HELO@ command initiates the SMTP session conversation. The client greets the server and introduces itself.
     -- As a rule, HELO is attributed with an argument that specifies the domain name or IP address of the SMTP client.
@@ -141,8 +145,16 @@ type ReplyCode = Int
 
 -- | Exceptions that can happen during communication.
 data SMTPException
-  = UnexpectedReply Command [ReplyCode] ReplyCode BS.ByteString
+  = -- | Reply code was not in the list of expected.
+    --
+    --  * @Command@ - command that was sent.
+    --  * @[ReplyCode]@ -- list of expected codes
+    --  * @ReplyCode@ -- the code that we have received
+    --  * @ByteString@ -- additional data returned by the server.
+    UnexpectedReply Command [ReplyCode] ReplyCode BS.ByteString
+    -- | The server didn't accept the start of the message delivery
   | NotConfirmed ReplyCode BS.ByteString
+    -- | The server does not support current authentication method
   | AuthNegotiationFailed ReplyCode BS.ByteString
   deriving (Show)
   deriving (Typeable)
@@ -205,12 +217,12 @@ tryCommand conn cmd tries expectedReplies = do
 -- Eg.:
 --
 -- @
--- "250-8BITMIME\r"
--- "250-PIPELINING\r"
--- "250-SIZE 42991616\r"
--- "250-AUTH LOGIN PLAIN XOAUTH2\r"
--- "250-DSN\r"
--- "250 ENHANCEDSTATUSCODES\r"
+-- "250-8BITMIME\\r"
+-- "250-PIPELINING\\r"
+-- "250-SIZE 42991616\\r"
+-- "250-AUTH LOGIN PLAIN XOAUTH2\\r"
+-- "250-DSN\\r"
+-- "250 ENHANCEDSTATUSCODES\\r"
 -- @
 --
 -- Returns:
@@ -287,18 +299,29 @@ sendCommand (SMTPC conn _) meth =
                       (AUTH {})     ->
                           error "BUG: AUTH pattern should be matched by sendCommand patterns"
 
--- | Sends quit to the server. Connection must be terminated afterwards.
+-- | Sends quit to the server. Connection must be terminated afterwards, i.e. it's not
+-- allowed to issue any command on this connection.
 quitSMTP :: SMTPConnection -> IO ()
 quitSMTP c = do
   _ <- tryCommand c QUIT 1 [221]
   pure ()
 
--- | Sends quit and closes connection immediately after receiving reply.
---
--- This method is expected to be used with the low level API such as pools
--- or resource frameworks.
+-- | Terminates the connection. 'Quit' command is not send in this case.
+-- It's safe to issue this command at any time if the connection is still
+-- open.
 closeSMTP :: SMTPConnection -> IO ()
-closeSMTP c@(SMTPC conn _) = quitSMTP c `finally` bsClose conn
+closeSMTP (SMTPC conn _) = bsClose conn
+
+-- | Gracefully closes SMTP connection. Connection should be in available
+-- state. First it sends quit command and then closes connection itself.
+-- Connection should not be used after this command exits (even if it exits with an exception).
+-- This command may throw an exception in case of network failure or
+-- protocol failure when sending 'QUIT' command. If it happens connection
+-- nevertheless is closed.
+--
+-- @since 0.6
+gracefullyCloseSMTP :: SMTPConnection -> IO ()
+gracefullyCloseSMTP c@(SMTPC conn _) = quitSMTP c `finally` bsClose conn
 
 -- | Sends a mail to the server.
 --

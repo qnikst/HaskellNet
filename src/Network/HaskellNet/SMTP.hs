@@ -27,16 +27,15 @@ main = 'doSMTP' "your.smtp.server.com" $ \\conn -> do -- (1)
 
 Notes for the above example:
 
-   * @(1)@ First the @conn@::'SMTPConnection' is opened with the 'doSMTP' function,
-     we can use it to communicate with @SMTP@ server. See managing connection for more options..
+   * @(1)@ The connection (@conn::@'SMTPConnection') is opened using the 'doSMTP' function.
+     We can use this connection to communicate with @SMTP@ server.
    * @(2)@ The 'authenticate' function authenticates to the server with the specified 'AuthType'.
      It returns a 'Bool' indicating either the authentication succeed or not.
-     See authentication section..
-   * @(3)@ The 'sendPlainTextMail' is used to send a email a plain text email. See sending emails to see all
-     the functions.
-   * __N.B.__ For /SSL\/TLS/ support you may establish the connection using
-     the functions (such as @connectSMTPSSL@) provided by the @Network.HaskellNet.SMTP.SSL@ module
-     of the <http://hackage.haskell.org/package/HaskellNet-SSL HaskellNet-SSL> package.
+   * @(3)@ The 'sendPlainTextMail' is used to send a email a plain text email.
+
+__N.B.__ For /SSL\/TLS/ support you may establish the connection using
+  the functions (such as @connectSMTPSSL@) provided by the @Network.HaskellNet.SMTP.SSL@ module
+  of the <http://hackage.haskell.org/package/HaskellNet-SSL HaskellNet-SSL> package.
 -}
 module Network.HaskellNet.SMTP
     ( -- * Workflow
@@ -69,10 +68,8 @@ module Network.HaskellNet.SMTP
     , connectSMTP
     , connectStream
     , closeSMTP
+    , gracefullyCloseSMTP
     , sendMail
-      -- ** Operation to a Connection
-    , sendCommand
-    , Command(..)
     )
     where
 
@@ -107,7 +104,7 @@ import Network.HaskellNet.SMTP.Internal
 --   3. Perform message sending
 --   4. Close connections
 --
--- Steps 1 and 4 are combined together using @bracket@-like API, other than that
+-- Steps 1 and 4 are combined together using @bracket@-like API. Other than that
 -- the documentation sections are structured according to this workflow.
 
 -- $controlling-connections
@@ -149,12 +146,20 @@ import Network.HaskellNet.SMTP.Internal
 --    (key, conn)
 --        <- 'Control.Monad.Trans.Resource.allocate'
 --               ('connectSMTP' "your.smtp.server.com")
---               (closeSMTP)
+--               ('closeSMTP')
 --    ... conn
 -- @
--- This approach allows resource management even if the code does not form
--- a stack.
 --
+-- This approach allows resource management even if the code does not form
+-- a stack, so is more general.
+--
+-- __NOTE__. SMTP protocol advices to use 'QUIT' command for graceful connection
+-- close. Before version 0.6 the library never sent it, so does 'closeSMTP' call.
+--
+-- Starting from 0.6 'doSMTP'-family uses graceful exit and sends 'QUIT' before terminating
+-- a connection. This way of termination is exposed as 'gracefullyCloseSTMP' function,
+-- however it's not a default method because it requires a connection to be in
+-- a valid state. So it's not possible to guarantee backwards compatibility.
 
 -- | connecting SMTP server with the specified name and port number.
 connectSMTPPort :: String     -- ^ name of the server
@@ -179,20 +184,6 @@ connectStream st =
        senderHost <- T.pack <$> getHostName
        msg <- tryCommand (SMTPC st []) (EHLO senderHost) 3 [250]
        return (SMTPC st (tail $ BS.lines msg))
-
-
-{-
-I must be being stupid here
-
-I can't seem to be able to catch the exception arising from the
-connection already being closed this would be the correct way to do it
-but instead we're being naughty above by just closes the connection
-without first sending QUIT
-
-closeSMTP c@(SMTPC conn _) =
-    do sendCommand c QUIT
-       bsClose conn `catch` \(_ :: IOException) -> return ()
--}
 
 
 -- $authentication
