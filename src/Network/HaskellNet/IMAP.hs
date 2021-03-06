@@ -8,7 +8,7 @@ module Network.HaskellNet.IMAP
       -- ** autenticated state commands
     , select, examine, create, delete, rename
     , subscribe, unsubscribe
-    , list, lsub, status, append
+    , list, lsub, status, append, appendFull
       -- ** selected state commands
     , check, close, expunge
     , search, store, copy
