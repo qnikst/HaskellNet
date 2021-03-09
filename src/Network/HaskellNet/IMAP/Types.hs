@@ -1,5 +1,6 @@
 module Network.HaskellNet.IMAP.Types
     ( MailboxName
+    , GmailLabel
     , UID
     , Charset
     , MailboxInfo(..)
@@ -14,30 +15,24 @@ module Network.HaskellNet.IMAP.Types
     )
 where
 
-import Data.Word
-    ( Word64
-    )
-import Text.Packrat.Parse
-    ( Result
-    , Derivs(..)
-    )
-import Text.Packrat.Pos
-    ( Pos
-    )
+import           Data.Word          (Word64)
+import           Text.Packrat.Parse (Derivs (..), Result)
+import           Text.Packrat.Pos   (Pos)
 
 type MailboxName = String
 type UID = Word64
 type Charset = String
+type GmailLabel = String
 
-data MailboxInfo = MboxInfo { _mailbox :: MailboxName
-                            , _exists :: Integer
-                            , _recent :: Integer
-                            , _flags :: [Flag]
+data MailboxInfo = MboxInfo { _mailbox        :: MailboxName
+                            , _exists         :: Integer
+                            , _recent         :: Integer
+                            , _flags          :: [Flag]
                             , _permanentFlags :: [Flag]
-                            , _isWritable :: Bool
+                            , _isWritable     :: Bool
                             , _isFlagWritable :: Bool
-                            , _uidNext :: UID
-                            , _uidValidity :: UID
+                            , _uidNext        :: UID
+                            , _uidValidity    :: UID
                             }
                  deriving (Show, Eq)
 
@@ -104,10 +99,10 @@ data MailboxStatus = MESSAGES     -- ^ the number of messages in the mailbox
 
 
 data RespDerivs =
-    RespDerivs { dvFlags  :: Result RespDerivs [Flag]
-               , advTag   :: Result RespDerivs String
-               , advChar  :: Result RespDerivs Char
-               , advPos   :: Pos
+    RespDerivs { dvFlags :: Result RespDerivs [Flag]
+               , advTag  :: Result RespDerivs String
+               , advChar :: Result RespDerivs Char
+               , advPos  :: Pos
                }
 
 instance Derivs RespDerivs where

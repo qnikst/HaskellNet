@@ -8,7 +8,7 @@ module Network.HaskellNet.IMAP
       -- ** autenticated state commands
     , select, examine, create, delete, rename
     , subscribe, unsubscribe
-    , list, lsub, status, append
+    , list, lsub, status, append, appendFull
       -- ** selected state commands
     , check, close, expunge
     , search, store, copy
@@ -23,28 +23,28 @@ module Network.HaskellNet.IMAP
     )
 where
 
-import Network.Socket (PortNumber)
-import Network.Compat
-import Network.HaskellNet.BSStream
-import Network.HaskellNet.IMAP.Connection
-import Network.HaskellNet.IMAP.Types
-import Network.HaskellNet.IMAP.Parsers
-import qualified Network.HaskellNet.Auth as A
+import           Network.Compat
+import qualified Network.HaskellNet.Auth            as A
+import           Network.HaskellNet.BSStream
+import           Network.HaskellNet.IMAP.Connection
+import           Network.HaskellNet.IMAP.Parsers
+import           Network.HaskellNet.IMAP.Types
+import           Network.Socket                     (PortNumber)
 
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Char8 as BS
+import           Data.ByteString                    (ByteString)
+import qualified Data.ByteString.Char8              as BS
 
-import Control.Monad
+import           Control.Monad
 
-import System.Time
+import           System.Time
 
-import Data.Maybe
-import Data.List hiding (delete)
-import Data.Char
+import           Data.Char
+import           Data.List                          hiding (delete)
+import           Data.Maybe
 
-import Text.Packrat.Parse (Result)
-import Control.Applicative -- support old toolchains
-import Prelude
+import           Control.Applicative
+import           Prelude
+import           Text.Packrat.Parse                 (Result)
 
 -- suffixed by `s'
 data SearchQuery = ALLs
@@ -112,6 +112,9 @@ instance Show SearchQuery where
 data FlagsQuery = ReplaceFlags [Flag]
                 | PlusFlags [Flag]
                 | MinusFlags [Flag]
+                | ReplaceGmailLabels [GmailLabel]
+                | PlusGmailLabels [GmailLabel]
+                | MinusGmailLabels [GmailLabel]
 
 ----------------------------------------------------------------------
 -- establish connection
@@ -332,13 +335,13 @@ appendFull conn mbox mailData flags' time =
        buf2 <- getResponse $ stream conn
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf2
        case resp of
-         OK _ _ -> mboxUpdate conn mboxUp
-         NO _ msg -> fail ("NO: "++msg)
-         BAD _ msg -> fail ("BAD: "++msg)
+         OK _ _        -> mboxUpdate conn mboxUp
+         NO _ msg      -> fail ("NO: "++msg)
+         BAD _ msg     -> fail ("BAD: "++msg)
          PREAUTH _ msg -> fail ("PREAUTH: "++msg)
     where mailLines = BS.lines mailData
           len       = sum $ map ((2+) . BS.length) mailLines
-          tstr      = maybe "" ((" "++) . show) time
+          tstr      = maybe "" ((" "++) . datetimeToStringIMAP) time
           fstr      = maybe "" ((" ("++) . (++")") . unwords . map show) flags'
 
 check :: IMAPConnection -> IO ()
@@ -431,9 +434,12 @@ storeFull conn uidstr query isSilent =
     where fstrs fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
           toFStr s fstrs' =
               s ++ (if isSilent then ".SILENT" else "") ++ " " ++ fstrs'
-          flgs (ReplaceFlags fs) = toFStr "FLAGS" $ fstrs fs
-          flgs (PlusFlags fs)    = toFStr "+FLAGS" $ fstrs fs
-          flgs (MinusFlags fs)   = toFStr "-FLAGS" $ fstrs fs
+          flgs (ReplaceGmailLabels ls) = toFStr "X-GM-LABELS" $ fstrs ls
+          flgs (PlusGmailLabels ls)    = toFStr "+X-GM-LABELS" $ fstrs ls
+          flgs (MinusGmailLabels ls)   = toFStr "-X-GM-LABELS" $ fstrs ls
+          flgs (ReplaceFlags fs)       = toFStr "FLAGS" $ fstrs fs
+          flgs (PlusFlags fs)          = toFStr "+FLAGS" $ fstrs fs
+          flgs (MinusFlags fs)         = toFStr "-FLAGS" $ fstrs fs
           procStore (n, ps) = (maybe (toEnum (fromIntegral n)) read
                                          (lookup' "UID" ps)
                               ,maybe [] (eval' dvFlags "") (lookup' "FLAG" ps))
@@ -452,24 +458,54 @@ copy conn uid mbox     = copyFull conn (show uid) mbox
 ----------------------------------------------------------------------
 -- auxialiary functions
 
+showMonth :: Month -> String
+showMonth January   = "Jan"
+showMonth February  = "Feb"
+showMonth March     = "Mar"
+showMonth April     = "Apr"
+showMonth May       = "May"
+showMonth June      = "Jun"
+showMonth July      = "Jul"
+showMonth August    = "Aug"
+showMonth September = "Sep"
+showMonth October   = "Oct"
+showMonth November  = "Nov"
+showMonth December  = "Dec"
+
+show2 :: Int -> String
+show2 n | n < 10    = '0' : show n
+        | otherwise = show n
+
+
+show4 :: (Ord a, Num a, Show a) => a -> String
+show4 n | n > 1000 = show n
+        | n > 100  = '0' : show n
+        | n > 10   = "00" ++ show n
+        | otherwise  = "000" ++ show n
+
 dateToStringIMAP :: CalendarTime -> String
 dateToStringIMAP date = concat $ intersperse "-" [show2 $ ctDay date
                                                  , showMonth $ ctMonth date
                                                  , show $ ctYear date]
-    where show2 n | n < 10    = '0' : show n
-                  | otherwise = show n
-          showMonth January   = "Jan"
-          showMonth February  = "Feb"
-          showMonth March     = "Mar"
-          showMonth April     = "Apr"
-          showMonth May       = "May"
-          showMonth June      = "Jun"
-          showMonth July      = "Jul"
-          showMonth August    = "Aug"
-          showMonth September = "Sep"
-          showMonth October   = "Oct"
-          showMonth November  = "Nov"
-          showMonth December  = "Dec"
+timeToStringIMAP :: CalendarTime -> String
+timeToStringIMAP c = concat
+                     $ intersperse ":"
+                     $ fmap show2 [ctHour c, ctMin c, ctSec c]
+
+-- Convert CalenarTime to "date-time" string per RFC3501
+datetimeToStringIMAP :: CalendarTime -> String
+datetimeToStringIMAP c =
+  "\""
+  ++ dateToStringIMAP c
+  ++ " "
+  ++ timeToStringIMAP c
+  ++ " "
+  ++ zone (ctTZ c)
+  ++ "\""
+  where
+    zone s =
+      (if s>=0 then "+" else "-") ++
+      show4 (s `div` 3600)
 
 strip :: ByteString -> ByteString
 strip = fst . BS.spanEnd isSpace . BS.dropWhile isSpace
@@ -496,8 +532,8 @@ escapeLogin x = "\"" ++ replaceSpecialChars x ++ "\""
     where
         replaceSpecialChars ""     = ""
         replaceSpecialChars (c:cs) = escapeChar c ++ replaceSpecialChars cs
-        escapeChar '"' = "\\\""
+        escapeChar '"'  = "\\\""
         escapeChar '\\' = "\\\\"
-        escapeChar '{' = "\\{"
-        escapeChar '}' = "\\}"
-        escapeChar s   = [s]
+        escapeChar '{'  = "\\{"
+        escapeChar '}'  = "\\}"
+        escapeChar s    = [s]
