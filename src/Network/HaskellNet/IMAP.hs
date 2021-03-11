@@ -70,6 +70,7 @@ data SearchQuery = ALLs
                  | SUBJECTs String
                  | TEXTs String
                  | TOs String
+                 | XGMRAW String
                  | UIDs [UID]
 
 
@@ -99,6 +100,7 @@ instance Show SearchQuery where
               showQuery (SUBJECTs s)    = "SUBJECT " ++ s
               showQuery (TEXTs s)       = "TEXT " ++ s
               showQuery (TOs addr)      = "TO " ++ addr
+              showQuery (XGMRAW s)      = "X-GM-RAW " ++ s
               showQuery (UIDs uids)     = concat $ intersperse "," $
                                           map show uids
               showFlag Seen        = "SEEN"
