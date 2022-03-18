@@ -84,7 +84,7 @@ instance Derivs d => MonadPlus (Parser d) where
 (<|>) :: Derivs d => Parser d v -> Parser d v -> Parser d v
 (Parser p1) <|> (Parser p2) = Parser parse
     where parse dvs = first dvs (p1 dvs)
-          first _ (result @ (Parsed {})) = result
+          first _ (result@(Parsed {})) = result
           first dvs (NoParse err) = second err (p2 dvs)
           second err1 (Parsed val rem err) =
               Parsed val rem (joinErrors err1 err)
@@ -94,7 +94,7 @@ instance Derivs d => MonadPlus (Parser d) where
 satisfy :: Derivs d => Parser d v -> (v -> Bool) -> Parser d v
 satisfy (Parser p) test = Parser parse
     where parse dvs = check dvs (p dvs)
-          check dvs (result @ (Parsed val _ _)) =
+          check dvs (result@(Parsed val _ _)) =
               if test val
               then result
               else NoParse (nullError dvs)
@@ -204,7 +204,7 @@ failAt pos msg = Parser (const $ NoParse (msgError pos msg))
               Parsed v rem (fix dvs err)
           munge dvs (NoParse err) =
               NoParse (fix dvs err)
-          fix dvs (err @ (ParseError ep _)) =
+          fix dvs (err@(ParseError ep _)) =
               if ep > dvPos dvs
               then err
               else expError (dvPos dvs) desc
@@ -224,7 +224,7 @@ failAt pos msg = Parser (const $ NoParse (msgError pos msg))
 -- but only if the position didn't change from the first to the second.
 -- If it did, just return the "new" (second) set of errors.
 joinErrors :: ParseError -> ParseError -> ParseError
-joinErrors (e @ (ParseError p m)) (e' @ (ParseError p' m'))
+joinErrors (e@(ParseError p m)) (e'@(ParseError p' m'))
     | p' > p || null m  = e'
     | p > p' || null m' = e
     | otherwise         = ParseError p (m `union` m')
