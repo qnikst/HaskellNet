@@ -6,7 +6,7 @@ Description:    This package provides client support for the POP3,
                 Full examples can be found in the <https://github.com/qnikst/HaskellNet/tree/master/example repository>.
                 Additional documentation on the major updates can be found in the
                 <https://github.com/qnikst/HaskellNet/blob/master/Updating.md Updating.md> file
-Version:        0.6
+Version:        0.6.0.1
 Copyright:      (c) 2006 Jun Mukai
 Author:         Jun Mukai
 Maintainer:     Alexander Vershilov <alexander.vershilov@sirius.online>,
