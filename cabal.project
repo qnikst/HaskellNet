@@ -1,0 +1,10 @@
+packages:
+    .
+
+-- https://github.com/emilypi/base64/pull/46
+source-repository-package
+    type: git
+    location: https://github.com/ysangkok/base64
+    tag: 5e3f36d07680f3369fb6b6ab5d3a0fb025a3a265
+
+
