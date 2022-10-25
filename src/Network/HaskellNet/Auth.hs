@@ -8,7 +8,6 @@ import Data.Text.Encoding.Base64 as B64
 
 #if MIN_VERSION_base64(0,5,0)
 import Data.Base64.Types as B64
-
 #endif
 
 import Data.Word
