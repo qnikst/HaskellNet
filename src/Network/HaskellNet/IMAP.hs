@@ -219,7 +219,7 @@ idle conn timeout =
         let (resp, mboxUp, value) = eval pNone (show6 num) buf
         case resp of
          OK _ _ -> do mboxUpdate conn mboxUp
-                             return value
+                      return value
          NO _ msg -> fail ("NO: " ++ msg)
          BAD _ msg -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
