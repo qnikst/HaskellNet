@@ -23,28 +23,28 @@ module Network.HaskellNet.IMAP
     )
 where
 
-import           Network.Compat
-import qualified Network.HaskellNet.Auth            as A
-import           Network.HaskellNet.BSStream
-import           Network.HaskellNet.IMAP.Connection
-import           Network.HaskellNet.IMAP.Parsers
-import           Network.HaskellNet.IMAP.Types
-import           Network.Socket                     (PortNumber)
+import Network.Socket (PortNumber)
+import Network.Compat
+import Network.HaskellNet.BSStream
+import Network.HaskellNet.IMAP.Connection
+import Network.HaskellNet.IMAP.Types
+import Network.HaskellNet.IMAP.Parsers
+import qualified Network.HaskellNet.Auth as A
 
-import           Data.ByteString                    (ByteString)
-import qualified Data.ByteString.Char8              as BS
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BS
 
-import           Control.Monad
+import Control.Monad
 
-import           System.Time
+import System.Time
 
-import           Data.Char
-import           Data.List                          hiding (delete)
-import           Data.Maybe
+import Data.Maybe
+import Data.List hiding (delete)
+import Data.Char
 
-import           Control.Applicative
-import           Prelude
-import           Text.Packrat.Parse                 (Result)
+import Text.Packrat.Parse (Result)
+import Control.Applicative -- support old toolchains
+import Prelude
 
 -- suffixed by `s'
 data SearchQuery = ALLs
@@ -218,10 +218,10 @@ idle conn timeout =
                     return buf'
         let (resp, mboxUp, value) = eval pNone (show6 num) buf
         case resp of
-         OK _ _        -> do mboxUpdate conn mboxUp
+         OK _ _ -> do mboxUpdate conn mboxUp
                              return value
-         NO _ msg      -> fail ("NO: " ++ msg)
-         BAD _ msg     -> fail ("BAD: " ++ msg)
+         NO _ msg -> fail ("NO: " ++ msg)
+         BAD _ msg -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
 
 noop :: IMAPConnection -> IO ()
@@ -534,8 +534,8 @@ escapeLogin x = "\"" ++ replaceSpecialChars x ++ "\""
     where
         replaceSpecialChars ""     = ""
         replaceSpecialChars (c:cs) = escapeChar c ++ replaceSpecialChars cs
-        escapeChar '"'  = "\\\""
+        escapeChar '"' = "\\\""
         escapeChar '\\' = "\\\\"
-        escapeChar '{'  = "\\{"
-        escapeChar '}'  = "\\}"
-        escapeChar s    = [s]
+        escapeChar '{' = "\\{"
+        escapeChar '}' = "\\}"
+        escapeChar s   = [s]
