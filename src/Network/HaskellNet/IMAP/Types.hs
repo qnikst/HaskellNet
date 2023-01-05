@@ -1,5 +1,6 @@
 module Network.HaskellNet.IMAP.Types
     ( MailboxName
+    , GmailLabel
     , UID
     , Charset
     , MailboxInfo(..)
@@ -28,6 +29,7 @@ import Text.Packrat.Pos
 type MailboxName = String
 type UID = Word64
 type Charset = String
+type GmailLabel = String
 
 data MailboxInfo = MboxInfo { _mailbox :: MailboxName
                             , _exists :: Integer
