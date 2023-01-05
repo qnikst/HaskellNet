@@ -1,8 +1,14 @@
+{-# language CPP #-}
+
 module Network.HaskellNet.Auth
 where
 
 import Crypto.Hash.MD5
 import Data.Text.Encoding.Base64 as B64
+
+#if MIN_VERSION_base64(0,5,0)
+import Data.Base64.Types as B64
+#endif
 
 import Data.Word
 import Data.List
@@ -28,10 +34,24 @@ instance Show AuthType where
               showMain CRAM_MD5 = "CRAM-MD5"
 
 b64Encode :: String -> String
-b64Encode = T.unpack . B64.encodeBase64 . T.pack
+b64Encode = T.unpack . encode . T.pack
+    where encode =
+#if MIN_VERSION_base64(0,5,0)
+              B64.extractBase64 . B64.encodeBase64
+#else
+              B64.encodeBase64
+#endif
+
+
 
 b64Decode :: String -> String
-b64Decode = T.unpack . B64.decodeBase64Lenient . T.pack
+b64Decode = T.unpack . decode . T.pack
+    where decode =
+#if MIN_VERSION_base64(0,5,0)
+              B64.decodeBase64Lenient . B64.assertBase64
+#else
+              B64.decodeBase64Lenient
+#endif
 
 showOctet :: [Word8] -> String
 showOctet = concatMap hexChars
