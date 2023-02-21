@@ -24,6 +24,7 @@ type Password = String
 data AuthType = PLAIN
               | LOGIN
               | CRAM_MD5
+              | XOAUTH2
                 deriving Eq
 
 instance Show AuthType where
@@ -32,6 +33,7 @@ instance Show AuthType where
               showMain PLAIN    = "PLAIN"
               showMain LOGIN    = "LOGIN"
               showMain CRAM_MD5 = "CRAM-MD5"
+              showMain XOAUTH2  = "XOAUTH2"
 
 b64Encode :: String -> String
 b64Encode = T.unpack . encode . T.pack
@@ -86,3 +88,4 @@ auth :: AuthType -> String -> UserName -> Password -> String
 auth PLAIN    _ u p = plain u p
 auth LOGIN    _ u p = let (u', p') = login u p in unwords [u', p']
 auth CRAM_MD5 c u p = cramMD5 c u p
+auth XOAUTH2  _ u p = b64Encode $ "user=" ++ u ++ "\001auth=" ++ p ++ "\001\001"
