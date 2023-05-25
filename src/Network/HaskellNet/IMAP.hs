@@ -387,14 +387,14 @@ fetchSize conn uid =
 fetchHeaderFields :: IMAPConnection
                   -> UID -> [String] -> IO ByteString
 fetchHeaderFields conn uid hs =
-    do lst <- fetchByString conn uid ("BODY[HEADER.FIELDS "++unwords hs++"]")
-       return $ maybe BS.empty BS.pack $
-              lookup' ("BODY[HEADER.FIELDS "++unwords hs++"]") lst
+    do let fetchCmd = "BODY[HEADER.FIELDS ("++unwords hs++")]"
+       lst <- fetchByString conn uid fetchCmd
+       return $ maybe BS.empty BS.pack $ lookup' fetchCmd lst
 
 fetchHeaderFieldsNot :: IMAPConnection
                      -> UID -> [String] -> IO ByteString
 fetchHeaderFieldsNot conn uid hs =
-    do let fetchCmd = "BODY[HEADER.FIELDS.NOT "++unwords hs++"]"
+    do let fetchCmd = "BODY[HEADER.FIELDS.NOT ("++unwords hs++")]"
        lst <- fetchByString conn uid fetchCmd
        return $ maybe BS.empty BS.pack $ lookup' fetchCmd lst
 
@@ -520,10 +520,10 @@ bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
 
 lookup' :: String -> [(String, b)] -> Maybe b
 lookup' _ [] = Nothing
-lookup' q ((k,v):xs) | q == lastWord k  = return v
+lookup' q ((k,v):xs) | q == query k  = return v
                      | otherwise        = lookup' q xs
     where
-        lastWord = last . words
+        query = unwords . drop 2 . words
 
 -- TODO: This is just a first trial solution for this stack overflow question:
 --       http://stackoverflow.com/questions/26183675/error-when-fetching-subject-from-email-using-haskellnets-imap
