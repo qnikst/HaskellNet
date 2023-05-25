@@ -382,7 +382,7 @@ fetchHeader conn uid =
 fetchSize :: IMAPConnection -> UID -> IO Int
 fetchSize conn uid =
     do lst <- fetchByString conn uid "RFC822.SIZE"
-       return $ maybe 0 read $ lookup' "RFC822.SIZE" lst
+       return $ maybe 0 read $ lookup "RFC822.SIZE" lst
 
 fetchHeaderFields :: IMAPConnection
                   -> UID -> [String] -> IO ByteString
@@ -401,7 +401,7 @@ fetchHeaderFieldsNot conn uid hs =
 fetchFlags :: IMAPConnection -> UID -> IO [Flag]
 fetchFlags conn uid =
     do lst <- fetchByString conn uid "FLAGS"
-       return $ getFlags $ lookup' "FLAGS" lst
+       return $ getFlags $ lookup "FLAGS" lst
     where getFlags Nothing  = []
           getFlags (Just s) = eval' dvFlags "" s
 
