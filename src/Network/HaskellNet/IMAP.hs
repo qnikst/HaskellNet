@@ -11,7 +11,7 @@ module Network.HaskellNet.IMAP
     , list, lsub, status, append, appendFull
       -- ** selected state commands
     , check, close, expunge
-    , search, store, copy
+    , search, store, copy, move
     , idle
       -- * fetch commands
     , fetch, fetchHeader, fetchSize, fetchHeaderFields, fetchHeaderFieldsNot
@@ -456,6 +456,9 @@ copyFull conn uidStr mbox =
 
 copy :: IMAPConnection -> UID -> MailboxName -> IO ()
 copy conn uid mbox     = copyFull conn (show uid) mbox
+
+move :: IMAPConnection -> UID -> MailboxName -> IO ()
+move conn uid mboxname = sendCommand conn ("UID MOVE " ++ show uid ++ " " ++ mboxname) pNone
 
 ----------------------------------------------------------------------
 -- auxialiary functions
