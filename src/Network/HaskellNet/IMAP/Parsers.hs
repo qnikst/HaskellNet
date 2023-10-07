@@ -237,7 +237,7 @@ pListLine list =
        return $ Right (attrs, sep, mbox)
     where parseAttr =
               do char '\\'
-                 choice [ string "Noinferior" >> return Noinferiors
+                 choice [ string "Noinferiors" >> return Noinferiors
                         , string "Noselect" >> return Noselect
                         , string "Marked" >> return Marked
                         , string "Unmarked" >> return Unmarked
