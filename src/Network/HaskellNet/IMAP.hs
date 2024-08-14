@@ -374,6 +374,12 @@ fetch conn uid =
     do lst <- fetchByString conn uid "BODY[]"
        return $ maybe BS.empty BS.pack $ lookup' "BODY[]" lst
 
+-- | Like 'fetch' but without marking the email as seen/read
+fetchPeek :: IMAPConnection -> UID -> IO ByteString
+fetchPeek conn uid =
+    do lst <- fetchByString conn uid "BODY.PEEK[]"
+       return $ maybe BS.empty BS.pack $ lookup' "BODY[]" lst
+
 fetchHeader :: IMAPConnection -> UID -> IO ByteString
 fetchHeader conn uid =
     do lst <- fetchByString conn uid "BODY[HEADER]"
