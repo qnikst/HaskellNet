@@ -374,6 +374,12 @@ fetch conn uid =
     do lst <- fetchByString conn uid "BODY[]"
        return $ maybe BS.empty BS.pack $ lookup' "BODY[]" lst
 
+-- | Like 'fetch' but without marking the email as seen/read
+fetchPeek :: IMAPConnection -> UID -> IO ByteString
+fetchPeek conn uid =
+    do lst <- fetchByString conn uid "BODY.PEEK[]"
+       return $ maybe BS.empty BS.pack $ lookup' "BODY[]" lst
+
 fetchHeader :: IMAPConnection -> UID -> IO ByteString
 fetchHeader conn uid =
     do lst <- fetchByString conn uid "BODY[HEADER]"
@@ -411,6 +417,13 @@ fetchR conn r =
     do lst <- fetchByStringR conn r "BODY[]"
        return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $
                                        lookup' "BODY[]" vs)) lst
+
+-- | Like 'fetchR' but without marking the email as seen/read
+fetchRPeek :: IMAPConnection -> (UID, UID) -> IO [(UID, ByteString)]
+fetchRPeek conn range =
+    do list <- fetchByStringR conn range "BODY.PEEK[]"
+       return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $ lookup' "BODY[]" vs)) list
+
 fetchByString :: IMAPConnection -> UID -> String
               -> IO [(String, String)]
 fetchByString conn uid command =
