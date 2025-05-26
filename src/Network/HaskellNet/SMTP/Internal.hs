@@ -302,10 +302,6 @@ sendCommand (SMTPC conn _) meth =
                       NOOP         -> "NOOP"
                       RSET         -> "RSET"
                       QUIT         -> "QUIT"
-                      (DATA _)     ->
-                          error "BUG: DATA pattern should be matched by sendCommand patterns"
-                      (AUTH {})     ->
-                          error "BUG: AUTH pattern should be matched by sendCommand patterns"
 
 -- | Sends quit to the server. Connection must be terminated afterwards, i.e. it's not
 -- allowed to issue any command on this connection.
