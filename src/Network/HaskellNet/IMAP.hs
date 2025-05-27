@@ -422,8 +422,8 @@ fetchR conn r =
 -- | Like 'fetchR' but without marking the email as seen/read
 fetchRPeek :: IMAPConnection -> (UID, UID) -> IO [(UID, ByteString)]
 fetchRPeek conn range =
-    do list <- fetchByStringR conn range "BODY.PEEK[]"
-       return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $ lookup' "BODY[]" vs)) list
+    do ls <- fetchByStringR conn range "BODY.PEEK[]"
+       return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $ lookup' "BODY[]" vs)) ls
 
 fetchByString :: IMAPConnection -> UID -> String
               -> IO [(String, String)]

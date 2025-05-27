@@ -12,7 +12,6 @@ import Data.List
 import Text.Packrat.Pos
 
 import Control.Monad
-import           Control.Applicative (Applicative(..))
 import qualified Control.Applicative as A
 
 import qualified Control.Monad.Fail as Fail
@@ -371,4 +370,3 @@ dvString d =
     case dvChar d of
       NoParse _ -> []
       Parsed c rem _ -> c : dvString rem
-
