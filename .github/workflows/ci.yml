@@ -1,0 +1,108 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  cabal:
+    name: ${{ matrix.os }} / ghc ${{ matrix.ghc }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macOS-latest]
+        ghc:
+        - "8.10.7"
+        - "9.0.2"
+        - "9.2.8"
+        - "9.4.8"
+        - "9.6.7"
+        - "9.8.4"
+        - "9.10.2"
+        - "9.12.2"
+        exclude:
+        # These don't work on GitHub CI anymore because they need llvm@13, which became
+        # disabled on 12/31/2024
+        - os: macOS-latest
+          ghc: 8.10.7
+        - os: macOS-latest
+          ghc: 9.0.2
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: haskell-actions/setup@v2
+      id: setup-haskell-cabal
+      name: Setup Haskell
+      with:
+        ghc-version: ${{ matrix.ghc }}
+        cabal-version: "latest"
+
+    - name: Freeze
+      run: |
+        cabal freeze
+
+    - uses: actions/cache@v4
+      name: Cache ~/.cabal/store
+      with:
+        path: ${{ steps.setup-haskell-cabal.outputs.cabal-store }}
+        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ hashFiles('cabal.project.freeze') }}
+
+    - name: Build
+      run: |
+        cabal configure --enable-tests --enable-benchmarks --test-show-details=direct
+        cabal build all
+
+    # - name: Test
+    #   run: |
+    #     cabal test all
+
+  stack:
+    name: stack / ghc ${{ matrix.ghc }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - ghc: "8.10.7"
+          resolver: lts-18.28
+        - ghc: "9.0.2"
+          resolver: lts-19.33
+        - ghc: "9.2.8"
+          resolver: lts-20.26
+        - ghc: "9.4.8"
+          resolver: lts-21.25
+        - ghc: "9.6.7"
+          resolver: lts-22.44
+        - ghc: "9.8.4"
+          resolver: lts-23.24
+        - ghc: "9.10.2"
+          resolver: nightly-2025-05-26
+        # - ghc: "9.12.2"
+        #   resolver:
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: haskell-actions/setup@v2
+      name: Setup Haskell Stack
+      with:
+        ghc-version: ${{ matrix.ghc }}
+        enable-stack: true
+        stack-version: "latest"
+
+    - uses: actions/cache@v4
+      name: Cache ~/.stack
+      with:
+        path: ~/.stack
+        key: ${{ runner.os }}-${{ matrix.ghc }}-${{ matrix.resolver }}
+
+    - name: Build
+      run: |
+        stack build --resolver ${{matrix.resolver}} --system-ghc --test --bench --no-run-tests --no-run-benchmarks
+
+    # - name: Test
+    #   run: |
+    #     stack test --resolver ${{matrix.resolver}} --system-ghc
