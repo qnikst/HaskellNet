@@ -1,3 +1,9 @@
+0.7 (2025-06-08)
+  - updated to the lastest GHC, tested with 8.10.7 — 9.12.2 (PR #103)
+    Thanks to @thomasjm
+  - various improvements in IMAP protocol (#94, #97, #99)
+    Thanks to @mpscholten
+
 0.6.1.0 (2023-06-27)
   - fixed bug with wrong IMAP header decoding ([Issue 89](https://github.com/qnikst/HaskellNet/issues/89))
     Thanks to William Arteroi (@wwmoraes) and Nathan Collins (@ntc2)
