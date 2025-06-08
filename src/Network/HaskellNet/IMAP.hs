@@ -16,6 +16,7 @@ module Network.HaskellNet.IMAP
       -- * fetch commands
     , fetch, fetchHeader, fetchSize, fetchHeaderFields, fetchHeaderFieldsNot
     , fetchFlags, fetchR, fetchByString, fetchByStringR
+    , fetchPeek, fetchRPeek
       -- * other types
     , Flag(..), Attribute(..), MailboxStatus(..)
     , SearchQuery(..), FlagsQuery(..)
@@ -23,13 +24,13 @@ module Network.HaskellNet.IMAP
     )
 where
 
-import Network.Socket (PortNumber)
 import Network.Compat
+import qualified Network.HaskellNet.Auth as A
 import Network.HaskellNet.BSStream
 import Network.HaskellNet.IMAP.Connection
-import Network.HaskellNet.IMAP.Types
 import Network.HaskellNet.IMAP.Parsers
-import qualified Network.HaskellNet.Auth as A
+import Network.HaskellNet.IMAP.Types
+import Network.Socket (PortNumber)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
@@ -421,8 +422,8 @@ fetchR conn r =
 -- | Like 'fetchR' but without marking the email as seen/read
 fetchRPeek :: IMAPConnection -> (UID, UID) -> IO [(UID, ByteString)]
 fetchRPeek conn range =
-    do list <- fetchByStringR conn range "BODY.PEEK[]"
-       return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $ lookup' "BODY[]" vs)) list
+    do ls <- fetchByStringR conn range "BODY.PEEK[]"
+       return $ map (\(uid, vs) -> (uid, maybe BS.empty BS.pack $ lookup' "BODY[]" vs)) ls
 
 fetchByString :: IMAPConnection -> UID -> String
               -> IO [(String, String)]

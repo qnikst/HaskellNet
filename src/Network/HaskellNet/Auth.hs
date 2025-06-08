@@ -48,12 +48,7 @@ b64Encode = T.unpack . encode . T.pack
 
 b64Decode :: String -> String
 b64Decode = T.unpack . decode . T.pack
-    where decode =
-#if MIN_VERSION_base64(0,5,0)
-              B64.decodeBase64Lenient . B64.assertBase64
-#else
-              B64.decodeBase64Lenient
-#endif
+    where decode = B64.decodeBase64Lenient
 
 showOctet :: [Word8] -> String
 showOctet = concatMap hexChars

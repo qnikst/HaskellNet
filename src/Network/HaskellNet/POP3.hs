@@ -31,10 +31,10 @@ module Network.HaskellNet.POP3
     )
     where
 
-import Network.HaskellNet.BSStream
-import Network.Socket
 import Network.Compat
 import qualified Network.HaskellNet.Auth as A
+import Network.HaskellNet.BSStream
+import Network.Socket
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
@@ -159,9 +159,6 @@ sendCommand conn command =
                          (UIDL msg)   -> "UIDL " ++ maybe "" show msg
                          (APOP usern passw) -> "APOP " ++ usern ++ " " ++
                                              hexDigest (apopKey conn ++ passw)
-                         (AUTH _ _ _) -> error "BUG: AUTH should not get matched here"
-                         (RETR _) -> error "BUG: RETR should not get matched here"
-                         (TOP _ _) -> error "BUG: TOP should not get matched here"
 
 user :: POP3Connection -> String -> IO ()
 user conn name = do (resp, _) <- sendCommand conn (USER name)
