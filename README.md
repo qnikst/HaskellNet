@@ -1,7 +1,7 @@
 HaskellNet
 ==========
 
-![Haskell-CI](https://github.com/qnikst/HaskellNet/workflows/Haskell-CI/badge.svg)
+[![ci](https://github.com/qnikst/HaskellNet/actions/workflows/ci.yml/badge.svg)](https://github.com/qnikst/HaskellNet/actions/workflows/ci.yml)
 
 This package provides client support for the E-mail protocols POP3,
 SMTP, and IMAP.
