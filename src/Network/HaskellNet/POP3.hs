@@ -159,6 +159,9 @@ sendCommand conn command =
                          (UIDL msg)   -> "UIDL " ++ maybe "" show msg
                          (APOP usern passw) -> "APOP " ++ usern ++ " " ++
                                              hexDigest (apopKey conn ++ passw)
+                         AUTH _ _ _   -> error "sendCommand: impossible happened AUTH expected to be processed in the preceeding clause"
+                         RETR _       -> error "sendCommand: impossible happened AUTH expected to be processed in the preceeding clause"
+                         TOP _ _      -> error "sendCommand: impossible happened AUTH expected to be processed in the preceeding clause"
 
 user :: POP3Connection -> String -> IO ()
 user conn name = do (resp, _) <- sendCommand conn (USER name)

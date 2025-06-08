@@ -302,6 +302,8 @@ sendCommand (SMTPC conn _) meth =
                       NOOP         -> "NOOP"
                       RSET         -> "RSET"
                       QUIT         -> "QUIT"
+                      DATA _       -> error "sendCommand: impossible happened DATA command expected to be processed in thepreceeding clause"
+                      AUTH _ _ _   -> error "sendCommand: impossible happened AUTH command expected to be processed in the preceeding clause"
 
 -- | Sends quit to the server. Connection must be terminated afterwards, i.e. it's not
 -- allowed to issue any command on this connection.
