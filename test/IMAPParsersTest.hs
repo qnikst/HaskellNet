@@ -96,6 +96,14 @@ statusTest =
             "* STATUS blurdybloop (MESSAGES 231 UIDNEXT 44292)\r\n\
             \A042 OK STATUS completed\r\n"
 
+statusWithSpaceTest =
+    ( OK Nothing "STATUS completed"
+                  , MboxUpdate Nothing Nothing
+                  , [(MESSAGES, 231), (UIDNEXT, 44292)])
+    ~=? eval' pStatus "A042"
+            "* STATUS \"[Gmail]/Alle Nachrichten\" (MESSAGES 231 UIDNEXT 44292)\r\n\
+            \A042 OK STATUS completed\r\n"
+
 expungeTest =
     ( OK Nothing "EXPUNGE completed"
     , MboxUpdate Nothing Nothing
@@ -167,7 +175,7 @@ testData = [ "base" ~: baseTest
            , "noop" ~: noopTest
            , "select" ~: selectTest
            , "list" ~: listTest
-           , "status" ~: statusTest
+           , "status" ~: TestList [ statusTest, statusWithSpaceTest ]
            , "expunge" ~: expungeTest
            , "search" ~: searchTest
            , "fetch" ~: fetchTest

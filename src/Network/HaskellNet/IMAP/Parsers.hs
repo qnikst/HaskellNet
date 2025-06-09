@@ -259,7 +259,7 @@ pListLine list =
 pStatusLine :: Parser RespDerivs (Either a [(MailboxStatus, Integer)])
 pStatusLine =
     do string "* STATUS "
-       _ <- anyChar `manyTill` space
+       mbox <- parseMailbox
        stats <- between (char '(') (char ')') (parseStat `sepBy1` space)
        crlfP
        return $ Right stats
@@ -273,6 +273,11 @@ pStatusLine =
                  space
                  num <- many1 digit >>= return . read
                  return (cons, num)
+          parseMailbox = do
+                            q <- optional $ char '"'
+                            case q of
+                                Just _  -> do mbox <- anyChar `manyTill` char '"'; space; return mbox
+                                Nothing -> anyChar `manyTill` space
 
 pSearchLine :: Parser RespDerivs (Either a [UID])
 pSearchLine = do string "* SEARCH "
