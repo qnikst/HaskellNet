@@ -95,5 +95,6 @@ Test-suite imap-parsers
   default-language: Haskell2010
   Build-Depends:
     base >= 4.3 && < 4.22,
+    bytestring >=0.10.2 && < 0.13,
     HaskellNet,
     HUnit >= 1.6 && < 1.7

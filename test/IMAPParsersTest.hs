@@ -1,11 +1,68 @@
 module Main (main) where
 
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BS
+import Data.IORef
+import Network.HaskellNet.BSStream
+import qualified Network.HaskellNet.IMAP as IMAP
+import Network.HaskellNet.IMAP.Connection
 import Network.HaskellNet.IMAP.Parsers
 import Network.HaskellNet.IMAP.Types
 
 import System.Exit
 
 import Test.HUnit
+
+data ReadStep = ReadLine ByteString | ReadBytes ByteString
+
+scriptedStream :: [ReadStep] -> IO (BSStream, IO ByteString)
+scriptedStream steps = do
+    input <- newIORef steps
+    output <- newIORef []
+    return (BSStream
+        { bsGetLine = popLine input
+        , bsGet = popBytes input
+        , bsPut = \bytes -> modifyIORef' output (bytes:)
+        , bsFlush = return ()
+        , bsClose = return ()
+        , bsIsOpen = return True
+        , bsWaitForInput = \_ -> return False
+        }, B.concat . reverse <$> readIORef output)
+  where
+    popLine input = do
+        steps' <- readIORef input
+        case steps' of
+            ReadLine line : rest -> writeIORef input rest >> return line
+            ReadBytes _ : _ -> failRead "expected test stream line, got bytes"
+            [] -> failRead "test stream exhausted while reading a line"
+
+    popBytes input n = do
+        steps' <- readIORef input
+        case steps' of
+            ReadBytes bytes : rest ->
+                let (chunk, remainder) = BS.splitAt n bytes
+                    next = if BS.null remainder then rest else ReadBytes remainder : rest
+                in writeIORef input next >> return chunk
+            ReadLine _ : _ -> failRead "expected test stream bytes, got a line"
+            [] -> failRead "test stream exhausted while reading bytes"
+
+    failRead message = assertFailure message >> return BS.empty
+
+scriptedConnection :: [ReadStep] -> IO (IMAPConnection, IO ByteString)
+scriptedConnection steps = do
+    (testStream, written) <- scriptedStream steps
+    conn <- newConnection testStream
+    return (conn, written)
+
+line :: String -> ReadStep
+line = ReadLine . BS.pack
+
+okLine :: String -> ReadStep
+okLine = line . ("000000 OK " ++)
+
+commandBytes :: String -> ByteString
+commandBytes cmd = BS.pack (cmd ++ "\r\n")
 
 baseTest =
     [(OK Nothing "LOGIN Completed", MboxUpdate Nothing Nothing, ())
@@ -184,6 +241,22 @@ fetchTest =
                               \a005 OK +FLAGS completed\r\n"
     ]
 
+imapAppendTest =
+    [ "append preserves raw crlf message bytes" ~: TestCase $ do
+          let mailData = BS.pack "Subject: x\r\n\r\nBody\r\n"
+              expectedCommand = "000000 APPEND INBOX {" ++ show (BS.length mailData) ++ "}"
+          (conn, written) <- scriptedConnection
+              [ line "+ Ready for literal"
+              , okLine "APPEND completed"
+              ]
+          IMAP.append conn "INBOX" mailData
+          actual <- written
+          B.concat [ commandBytes expectedCommand
+                   , mailData
+                   , BS.pack "\r\n"
+                   ] @=? actual
+    ]
+
 
 testData = [ "base" ~: baseTest
            , "capability" ~: capabilityTest
@@ -194,6 +267,7 @@ testData = [ "base" ~: baseTest
            , "expunge" ~: expungeTest
            , "search" ~: searchTest
            , "fetch" ~: fetchTest
+           , "imap append api" ~: imapAppendTest
            ]
 
 
