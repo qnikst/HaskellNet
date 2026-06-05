@@ -3,6 +3,8 @@ module Main (main) where
 import Network.HaskellNet.IMAP.Parsers
 import Network.HaskellNet.IMAP.Types
 
+import System.Exit
+
 import Test.HUnit
 
 baseTest =
@@ -96,6 +98,27 @@ statusTest =
             "* STATUS blurdybloop (MESSAGES 231 UIDNEXT 44292)\r\n\
             \A042 OK STATUS completed\r\n"
 
+statusQuotedMailboxTest =
+    [ ( OK Nothing "STATUS completed"
+      , MboxUpdate Nothing Nothing
+      , [(MESSAGES, 231), (UIDNEXT, 44292)])
+      ~=? eval' pStatus "A042"
+              "* STATUS \"[Gmail]/Alle Nachrichten\" (MESSAGES 231 UIDNEXT 44292)\r\n\
+              \A042 OK STATUS completed\r\n"
+    , ( OK Nothing "STATUS completed"
+      , MboxUpdate Nothing Nothing
+      , [(MESSAGES, 1)])
+      ~=? eval' pStatus "A043"
+              "* STATUS \"foo\\\" bar\" (MESSAGES 1)\r\n\
+              \A043 OK STATUS completed\r\n"
+    , ( OK Nothing "STATUS completed"
+      , MboxUpdate Nothing Nothing
+      , [(MESSAGES, 1)])
+      ~=? eval' pStatus "A044"
+              "* STATUS foo (MESSAGES 1)\r\n\
+              \A044 OK STATUS completed\r\n"
+    ]
+
 expungeTest =
     ( OK Nothing "EXPUNGE completed"
     , MboxUpdate Nothing Nothing
@@ -167,11 +190,15 @@ testData = [ "base" ~: baseTest
            , "noop" ~: noopTest
            , "select" ~: selectTest
            , "list" ~: listTest
-           , "status" ~: statusTest
+           , "status" ~: TestList [ statusTest, TestList statusQuotedMailboxTest ]
            , "expunge" ~: expungeTest
            , "search" ~: searchTest
            , "fetch" ~: fetchTest
            ]
 
 
-main = runTestTT (test testData)
+main = do
+    counts <- runTestTT (test testData)
+    if errors counts == 0 && failures counts == 0
+        then exitSuccess
+        else exitFailure
