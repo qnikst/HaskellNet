@@ -71,6 +71,7 @@ assertCommand name expected steps action =
         actual <- written
         expected @=? actual
 
+
 baseTest =
     [(OK Nothing "LOGIN Completed", MboxUpdate Nothing Nothing, ())
      ~=? eval' pNone "A001"
@@ -331,6 +332,28 @@ flagTest =
           [Keyword "\\Custom"] ~=? eval' dvFlags "" "(\\Custom)"
     ]
 
+imapFetchTest =
+    [ "fetchByByteString preserves raw literal bytes" ~: TestCase $ do
+          let body = B.pack [0, 10, 255, 65]
+          (conn, _) <- scriptedConnection
+              [ line "* 12 FETCH (BODY[] {4}"
+              , ReadBytes body
+              , line " UID 42)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetchByByteString conn 42 "BODY[]"
+          [("BODY[]", body), ("UID", BS.pack "42")] @=? fetched
+    , "fetch preserves large literals" ~: TestCase $ do
+          let body = BS.replicate (1024 * 1024) 'x'
+          (conn, _) <- scriptedConnection
+              [ line ("* 12 FETCH (BODY[] {" ++ show (BS.length body) ++ "}")
+              , ReadBytes body
+              , line " UID 42)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetch conn 42
+          body @=? fetched
+    ]
 
 testData = [ "base" ~: baseTest
            , "capability" ~: capabilityTest
@@ -343,6 +366,7 @@ testData = [ "base" ~: baseTest
            , "fetch" ~: fetchTest
            , "imap commands" ~: imapCommandTest
            , "flags" ~: flagTest
+           , "imap fetch api" ~: imapFetchTest
            ]
 
 
