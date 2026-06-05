@@ -23,6 +23,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
 
 import Network.HaskellNet.IMAP.Types
+import Network.HaskellNet.IMAP.UTF7
 
 eval :: (RespDerivs -> Result RespDerivs r) -> String -> ByteString -> r
 eval pMain tag s = case pMain (parse tag (Pos tag 1 1) s) of
@@ -249,12 +250,16 @@ pListLine list =
                           return attrs
           parseSep = space >> char '"' >> anyChar `manyTill` char '"'
           parseMailbox = do space
-                            q <- optional $ char '"'
-                            case q of
-                                Just _  -> do mbox <- anyChar `manyTill` char '"'
-                                              anyChar `manyTill` crlfP
-                                              return mbox
-                                Nothing -> anyChar `manyTill` crlfP
+                            mbox <- pListMailboxName
+                            crlfP
+                            return mbox
+
+pListMailboxName :: Parser RespDerivs MailboxName
+pListMailboxName = decodeMailboxName <$> (pQuotedMailboxString <|> many1 (noneOf " \r\n"))
+
+pQuotedMailboxString :: Parser RespDerivs String
+pQuotedMailboxString = between (char '"') (char '"') (many quotedChar)
+    where quotedChar = (char '\\' >> noneOf "\r\n") <|> noneOf "\"\\\r\n"
 
 pStatusLine :: Parser RespDerivs (Either a [(MailboxStatus, Integer)])
 pStatusLine =
