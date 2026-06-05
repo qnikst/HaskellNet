@@ -259,7 +259,8 @@ pListLine list =
 pStatusLine :: Parser RespDerivs (Either a [(MailboxStatus, Integer)])
 pStatusLine =
     do string "* STATUS "
-       _ <- anyChar `manyTill` space
+       _ <- pMailboxName
+       space
        stats <- between (char '(') (char ')') (parseStat `sepBy1` space)
        crlfP
        return $ Right stats
@@ -273,6 +274,13 @@ pStatusLine =
                  space
                  num <- many1 digit >>= return . read
                  return (cons, num)
+
+pMailboxName :: Parser RespDerivs MailboxName
+pMailboxName = pQuotedString <|> many1 (noneOf " \r\n")
+
+pQuotedString :: Parser RespDerivs String
+pQuotedString = between (char '"') (char '"') (many quotedChar)
+    where quotedChar = (char '\\' >> noneOf "\r\n") <|> noneOf "\"\\\r\n"
 
 pSearchLine :: Parser RespDerivs (Either a [UID])
 pSearchLine = do string "* SEARCH "
