@@ -184,6 +184,19 @@ fetchTest =
                               \a005 OK +FLAGS completed\r\n"
     ]
 
+flagTest =
+    [ "keyword show omits backslash" ~:
+          "Custom" ~=? show (Keyword "Custom")
+    , "permanent wildcard show keeps backslash" ~:
+          "\\*" ~=? show (Keyword "*")
+    , "keyword parser keeps bare keyword" ~:
+          [Keyword "Custom"] ~=? eval' dvFlags "" "(Custom)"
+    , "keyword parser keeps permanent wildcard" ~:
+          [Keyword "*"] ~=? eval' dvFlags "" "(\\*)"
+    , "keyword parser preserves unknown system flag" ~:
+          [Keyword "\\Custom"] ~=? eval' dvFlags "" "(\\Custom)"
+    ]
+
 
 testData = [ "base" ~: baseTest
            , "capability" ~: capabilityTest
@@ -194,6 +207,7 @@ testData = [ "base" ~: baseTest
            , "expunge" ~: expungeTest
            , "search" ~: searchTest
            , "fetch" ~: fetchTest
+           , "flags" ~: flagTest
            ]
 
 
