@@ -430,11 +430,19 @@ fetchRPeek conn range =
     do ls <- fetchByByteStringR conn range "BODY.PEEK[]"
        return $ map (\(uid, vs) -> (uid, fromMaybe BS.empty $ lookup' "BODY[]" vs)) ls
 
+-- | Fetch arbitrary data items and return values as 'String's.
+--
+-- This is kept for compatibility. Prefer 'fetchByByteString' for message
+-- bodies or other data that may be large or non-textual.
 fetchByString :: IMAPConnection -> UID -> String
               -> IO [(String, String)]
 fetchByString conn uid command =
     map (\(key, value) -> (key, BS.unpack value)) <$> fetchByByteString conn uid command
 
+-- | Fetch arbitrary data items and return raw 'ByteString' values.
+--
+-- Literal values are read directly from the stream instead of first building a
+-- full response buffer, so this is the preferred API for large messages.
 fetchByByteString :: IMAPConnection -> UID -> String
                   -> IO [(String, ByteString)]
 fetchByByteString conn uid command =
@@ -443,6 +451,7 @@ fetchByByteString conn uid command =
          (_, pairs):_ -> return pairs
          [] -> return []
 
+-- | Range variant of 'fetchByString'.
 fetchByStringR :: IMAPConnection -> (UID, UID) -> String
                -> IO [(UID, [(String, String)])]
 fetchByStringR conn (s, e) command =
@@ -450,6 +459,7 @@ fetchByStringR conn (s, e) command =
     where unpackFetch (uid, pairs) =
               (uid, map (\(key, value) -> (key, BS.unpack value)) pairs)
 
+-- | Range variant of 'fetchByByteString'.
 fetchByByteStringR :: IMAPConnection -> (UID, UID) -> String
                    -> IO [(UID, [(String, ByteString)])]
 fetchByByteStringR conn (s, e) command =
@@ -475,6 +485,8 @@ fetchCommandBS conn command proc =
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
 
+-- Streaming FETCH response parser. Literal payloads are read with 'bsGet' so
+-- large message bodies do not require buffering the complete server response.
 getFetchResponseBS :: BSStream -> String
                    -> IO (ServerResponse, MboxUpdate, [(Integer, [(String, ByteString)])])
 getFetchResponseBS s tag = go Nothing Nothing []
@@ -651,12 +663,7 @@ parseQuotedValueBS input =
 parseAtomValueBS :: ByteString -> Maybe (ByteString, ByteString)
 parseAtomValueBS input =
     let (value, rest) = BS.span isAtomValueChar input
-    in if BS.null value
-       then Nothing
-       else let normalized = if BS.map toUpper value == BS.pack "NIL"
-                             then BS.empty
-                             else value
-            in Just (normalized, rest)
+    in if BS.null value then Nothing else Just (value, rest)
   where
     isAtomValueChar c = not $ c `elem` " (){%*\"\\]\r\n"
 

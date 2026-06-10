@@ -353,6 +353,79 @@ imapFetchTest =
               ]
           fetched <- IMAP.fetch conn 42
           body @=? fetched
+    , "fetchPeek reads body response without setting Seen" ~: TestCase $ do
+          let body = BS.pack "peeked"
+          (conn, _) <- scriptedConnection
+              [ line ("* 12 FETCH (BODY[] {" ++ show (BS.length body) ++ "}")
+              , ReadBytes body
+              , line " UID 42)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetchPeek conn 42
+          body @=? fetched
+    , "fetchSize parses scalar size responses" ~: TestCase $ do
+          (conn, _) <- scriptedConnection
+              [ line "* 12 FETCH (RFC822.SIZE 12345 UID 42)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetchSize conn 42
+          12345 @=? fetched
+    , "fetchFlags parses parenthesized flag responses" ~: TestCase $ do
+          (conn, _) <- scriptedConnection
+              [ line "* 12 FETCH (FLAGS (\\Seen \\Deleted) UID 42)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetchFlags conn 42
+          [Seen, Deleted] @=? fetched
+    , "fetchHeaderFields matches normalized body section keys" ~: TestCase $ do
+          let headers = BS.pack "Subject: Hi\r\nFrom: a@example.com\r\n\r\n"
+          (conn, _) <- scriptedConnection
+              [ line ("* 12 FETCH (BODY[HEADER.FIELDS (SUBJECT FROM)] {"
+                       ++ show (BS.length headers) ++ "}")
+              , ReadBytes headers
+              , line " UID 42)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetchHeaderFields conn 42 ["Subject", "From"]
+          headers @=? fetched
+    , "fetchR maps sequence numbers to response UIDs" ~: TestCase $ do
+          let firstBody = BS.pack "one"
+              secondBody = BS.pack "two"
+          (conn, _) <- scriptedConnection
+              [ line ("* 1 FETCH (BODY[] {" ++ show (BS.length firstBody) ++ "}")
+              , ReadBytes firstBody
+              , line " UID 101)"
+              , line ("* 2 FETCH (BODY[] {" ++ show (BS.length secondBody) ++ "}")
+              , ReadBytes secondBody
+              , line " UID 102)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetchR conn (1, 2)
+          [(101, firstBody), (102, secondBody)] @=? fetched
+    , "fetchByString keeps scalar and literal values compatible" ~: TestCase $ do
+          let headers = BS.pack "hello"
+          (conn, _) <- scriptedConnection
+              [ line ("* 12 FETCH (RFC822.SIZE 123 FLAGS (\\Seen) BODY[HEADER] {"
+                       ++ show (BS.length headers) ++ "}")
+              , ReadBytes headers
+              , line " NILKEY NIL QUOTED \"world\" UID 42)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetchByString conn 42
+              "RFC822.SIZE FLAGS BODY[HEADER] NILKEY QUOTED"
+          [ ("RFC822.SIZE", "123")
+            , ("FLAGS", "(\\Seen)")
+            , ("BODY[HEADER]", "hello")
+            , ("NILKEY", "NIL")
+            , ("QUOTED", "\"world\"")
+            , ("UID", "42")
+            ] @=? fetched
+    , "store accepts FETCH data in STORE responses" ~: TestCase $ do
+          (conn, _) <- scriptedConnection
+              [ line "* 12 FETCH (UID 42 FLAGS (\\Seen))"
+              , okLine "STORE completed"
+              ]
+          IMAP.store conn 42 (IMAP.PlusFlags [Seen])
     ]
 
 testData = [ "base" ~: baseTest
