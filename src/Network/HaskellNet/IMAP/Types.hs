@@ -61,7 +61,8 @@ instance Show Flag where
               showFlag Deleted     = "\\Deleted"
               showFlag Draft       = "\\Draft"
               showFlag Recent      = "\\Recent"
-              showFlag (Keyword s) = "\\" ++ s
+              showFlag (Keyword "*") = "\\*"
+              showFlag (Keyword s)   = s
 
 data Attribute = Noinferiors
                | Noselect
