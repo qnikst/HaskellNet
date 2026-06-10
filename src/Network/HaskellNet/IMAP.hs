@@ -545,10 +545,31 @@ bsPutCrLf h s = bsPut h s >> bsPut h crlf >> bsFlush h
 
 lookup' :: String -> [(String, b)] -> Maybe b
 lookup' _ [] = Nothing
-lookup' q ((k,v):xs) | q == query k  = return v
+lookup' q ((k,v):xs) | matchesFetchKey q k = return v
                      | otherwise        = lookup' q xs
-    where
-        query = unwords . drop 2 . words
+
+matchesFetchKey :: String -> String -> Bool
+matchesFetchKey expected actual =
+    normalizeFetchKey expected == normalizeFetchKey actual ||
+    normalizeFetchKey expected == normalizeFetchKey (stripUIDPrefix actual)
+
+normalizeFetchKey :: String -> String
+normalizeFetchKey = stripOrigin . stripPeek . map toUpper
+  where
+    stripPeek key =
+        case stripPrefix "BODY.PEEK[" key of
+          Just rest -> "BODY[" ++ rest
+          Nothing -> key
+    stripOrigin key =
+        case break (== '<') key of
+          (bodySection, '<':_) | "BODY[" `isPrefixOf` bodySection -> bodySection
+          _ -> key
+
+stripUIDPrefix :: String -> String
+stripUIDPrefix key =
+    case words key of
+      "UID" : _ : rest -> unwords rest
+      _ -> key
 
 -- TODO: This is just a first trial solution for this stack overflow question:
 --       http://stackoverflow.com/questions/26183675/error-when-fetching-subject-from-email-using-haskellnets-imap

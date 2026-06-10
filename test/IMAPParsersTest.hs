@@ -11,8 +11,6 @@ import Network.HaskellNet.IMAP.Parsers
 import Network.HaskellNet.IMAP.Types
 import System.Exit
 
-import System.Exit
-
 import Test.HUnit
 
 data ReadStep = ReadLine ByteString | ReadBytes ByteString
@@ -57,6 +55,9 @@ scriptedConnection steps = do
 line :: String -> ReadStep
 line = ReadLine . BS.pack
 
+bytes :: String -> ReadStep
+bytes = ReadBytes . BS.pack
+
 okLine :: String -> ReadStep
 okLine = line . ("000000 OK " ++)
 
@@ -70,6 +71,7 @@ assertCommand name expected steps action =
         _ <- action conn
         actual <- written
         expected @=? actual
+
 
 baseTest =
     [(OK Nothing "LOGIN Completed", MboxUpdate Nothing Nothing, ())
@@ -332,6 +334,19 @@ flagTest =
     ]
 
 
+imapFetchTest =
+    [ "fetch works when BODY precedes UID" ~: TestCase $ do
+          (conn, _) <- scriptedConnection
+              [ line "* 12 FETCH (BODY[] {5}"
+              , bytes "hello"
+              , line " UID 999)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetch conn 999
+          BS.pack "hello" @=? fetched
+    ]
+
+
 testData = [ "base" ~: baseTest
            , "capability" ~: capabilityTest
            , "noop" ~: noopTest
@@ -343,6 +358,7 @@ testData = [ "base" ~: baseTest
            , "fetch" ~: fetchTest
            , "imap commands" ~: imapCommandTest
            , "flags" ~: flagTest
+           , "imap fetch api" ~: imapFetchTest
            ]
 
 
