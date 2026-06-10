@@ -190,7 +190,7 @@ pFlag = do char '\\'
                   , string "Draft"    >> return Draft
                   , string "Recent"   >> return Recent
                   , char '*'          >> return (Keyword "*")
-                  , many1 atomChar    >>= return . Keyword ]
+                  , many1 atomChar    >>= return . Keyword . ('\\':) ]
     <|> (many1 atomChar >>= return . Keyword)
 
 pParenFlags :: RespDerivs -> Result RespDerivs [Flag]
