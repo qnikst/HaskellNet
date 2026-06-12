@@ -332,7 +332,7 @@ appendFull conn mbox mailData flags' time =
                         , fstr, tstr, " {" ++ show len ++ "}"])
        when (BS.null buf || (BS.head buf /= '+')) $
               fail "illegal server response"
-       mapM_ (bsPutCrLf $ stream conn) mailLines
+       bsPut (stream conn) mailData
        bsPutCrLf (stream conn) BS.empty
        buf2 <- getResponse $ stream conn
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf2
@@ -341,8 +341,7 @@ appendFull conn mbox mailData flags' time =
          NO _ msg      -> fail ("NO: "++msg)
          BAD _ msg     -> fail ("BAD: "++msg)
          PREAUTH _ msg -> fail ("PREAUTH: "++msg)
-    where mailLines = BS.lines mailData
-          len       = sum $ map ((2+) . BS.length) mailLines
+    where len       = BS.length mailData
           tstr      = maybe "" ((" "++) . datetimeToStringIMAP) time
           fstr      = maybe "" ((" ("++) . (++")") . unwords . map show) flags'
 

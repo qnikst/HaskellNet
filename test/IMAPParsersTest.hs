@@ -11,8 +11,6 @@ import Network.HaskellNet.IMAP.Parsers
 import Network.HaskellNet.IMAP.Types
 import System.Exit
 
-import System.Exit
-
 import Test.HUnit
 
 data ReadStep = ReadLine ByteString | ReadBytes ByteString
@@ -297,6 +295,19 @@ imapCommandTest =
           [(MESSAGES, 1)] @=? statusResult
           actual <- written
           commandBytes "000000 STATUS \"foo bar\" (MESSAGES)" @=? actual
+    , "append preserves raw crlf message bytes" ~: TestCase $ do
+          let mailData = BS.pack "Subject: x\r\n\r\nBody\r\n"
+              expectedCommand = "000000 APPEND INBOX {" ++ show (BS.length mailData) ++ "}"
+          (conn, written) <- scriptedConnection
+              [ line "+ Ready for literal"
+              , okLine "APPEND completed"
+              ]
+          IMAP.append conn "INBOX" mailData
+          actual <- written
+          B.concat [ commandBytes expectedCommand
+                   , mailData
+                   , BS.pack "\r\n"
+                   ] @=? actual
     , "append quotes mailbox" ~: TestCase $ do
           let mailData = BS.pack "Body"
           (conn, written) <- scriptedConnection
@@ -305,8 +316,9 @@ imapCommandTest =
               ]
           IMAP.append conn "foo bar" mailData
           actual <- written
-          B.concat [ commandBytes "000000 APPEND \"foo bar\" {6}"
-                   , BS.pack "Body\r\n\r\n"
+          B.concat [ commandBytes ("000000 APPEND \"foo bar\" {" ++ show (BS.length mailData) ++ "}")
+                   , mailData
+                   , BS.pack "\r\n"
                    ] @=? actual
     , assertCommand "copy quotes mailbox"
           (commandBytes "000000 UID COPY 42 \"foo bar\"")
