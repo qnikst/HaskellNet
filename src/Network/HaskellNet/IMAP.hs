@@ -30,6 +30,7 @@ import Network.HaskellNet.BSStream
 import Network.HaskellNet.IMAP.Connection
 import Network.HaskellNet.IMAP.Parsers
 import Network.HaskellNet.IMAP.Types
+import Network.HaskellNet.IMAP.UTF7
 import Network.Socket (PortNumber)
 
 import Data.ByteString (ByteString)
@@ -275,10 +276,8 @@ authenticate conn at username password =
 
 _select :: String -> IMAPConnection -> String -> IO ()
 _select cmd conn mboxName =
-    do mbox' <- sendCommand conn (cmd ++ quoted mboxName) pSelect
+    do mbox' <- sendCommand conn (cmd ++ quoteMailboxName mboxName) pSelect
        setMailboxInfo conn $ mbox' { _mailbox = mboxName }
-    where
-       quoted s = "\"" ++ s ++ "\""
 
 select :: IMAPConnection -> MailboxName -> IO ()
 select = _select "SELECT "
@@ -287,20 +286,20 @@ examine :: IMAPConnection -> MailboxName -> IO ()
 examine = _select "EXAMINE "
 
 create :: IMAPConnection -> MailboxName -> IO ()
-create conn mboxname = sendCommand conn ("CREATE " ++ mboxname) pNone
+create conn mboxname = sendCommand conn ("CREATE " ++ quoteMailboxName mboxname) pNone
 
 delete :: IMAPConnection -> MailboxName -> IO ()
-delete conn mboxname = sendCommand conn ("DELETE " ++ mboxname) pNone
+delete conn mboxname = sendCommand conn ("DELETE " ++ quoteMailboxName mboxname) pNone
 
 rename :: IMAPConnection -> MailboxName -> MailboxName -> IO ()
 rename conn mboxorg mboxnew =
-    sendCommand conn ("RENAME " ++ mboxorg ++ " " ++ mboxnew) pNone
+    sendCommand conn ("RENAME " ++ quoteMailboxName mboxorg ++ " " ++ quoteMailboxName mboxnew) pNone
 
 subscribe :: IMAPConnection -> MailboxName -> IO ()
-subscribe conn mboxname = sendCommand conn ("SUBSCRIBE " ++ mboxname) pNone
+subscribe conn mboxname = sendCommand conn ("SUBSCRIBE " ++ quoteMailboxName mboxname) pNone
 
 unsubscribe :: IMAPConnection -> MailboxName -> IO ()
-unsubscribe conn mboxname = sendCommand conn ("UNSUBSCRIBE " ++ mboxname) pNone
+unsubscribe conn mboxname = sendCommand conn ("UNSUBSCRIBE " ++ quoteMailboxName mboxname) pNone
 
 list :: IMAPConnection -> IO [([Attribute], MailboxName)]
 list conn = (map (\(a, _, m) -> (a, m))) <$> listFull conn "\"\"" "*"
@@ -319,7 +318,7 @@ lsubFull conn ref pat = sendCommand conn (unwords ["LSUB", ref, pat]) pLsub
 status :: IMAPConnection -> MailboxName -> [MailboxStatus]
        -> IO [(MailboxStatus, Integer)]
 status conn mbox stats =
-    let cmd = "STATUS " ++ mbox ++ " (" ++ (unwords $ map show stats) ++ ")"
+    let cmd = "STATUS " ++ quoteMailboxName mbox ++ " (" ++ (unwords $ map show stats) ++ ")"
     in sendCommand conn cmd pStatus
 
 append :: IMAPConnection -> MailboxName -> ByteString -> IO ()
@@ -329,7 +328,7 @@ appendFull :: IMAPConnection -> MailboxName -> ByteString
            -> Maybe [Flag] -> Maybe CalendarTime -> IO ()
 appendFull conn mbox mailData flags' time =
     do (buf, num) <- sendCommand' conn
-                (concat ["APPEND ", mbox
+                (concat ["APPEND ", quoteMailboxName mbox
                         , fstr, tstr, " {" ++ show len ++ "}"])
        when (BS.null buf || (BS.head buf /= '+')) $
               fail "illegal server response"
@@ -466,16 +465,25 @@ store conn i q = storeFull conn (show i) q True >> return ()
 
 copyFull :: IMAPConnection -> String -> String -> IO ()
 copyFull conn uidStr mbox =
-    sendCommand conn ("UID COPY " ++ uidStr ++ " " ++ mbox) pNone
+    sendCommand conn ("UID COPY " ++ uidStr ++ " " ++ quoteMailboxName mbox) pNone
 
 copy :: IMAPConnection -> UID -> MailboxName -> IO ()
 copy conn uid mbox     = copyFull conn (show uid) mbox
 
 move :: IMAPConnection -> UID -> MailboxName -> IO ()
-move conn uid mboxname = sendCommand conn ("UID MOVE " ++ show uid ++ " " ++ mboxname) pNone
+move conn uid mboxname = sendCommand conn ("UID MOVE " ++ show uid ++ " " ++ quoteMailboxName mboxname) pNone
 
 ----------------------------------------------------------------------
 -- auxialiary functions
+
+quoteMailboxName :: MailboxName -> String
+quoteMailboxName = quoteIMAPString . encodeMailboxName
+
+quoteIMAPString :: String -> String
+quoteIMAPString s = "\"" ++ concatMap escapeChar s ++ "\""
+    where escapeChar '"' = "\\\""
+          escapeChar '\\' = "\\\\"
+          escapeChar c = [c]
 
 showMonth :: Month -> String
 showMonth January   = "Jan"

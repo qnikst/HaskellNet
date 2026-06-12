@@ -1,11 +1,75 @@
 module Main (main) where
 
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BS
+import Data.IORef
+import Network.HaskellNet.BSStream
+import qualified Network.HaskellNet.IMAP as IMAP
+import Network.HaskellNet.IMAP.Connection
 import Network.HaskellNet.IMAP.Parsers
 import Network.HaskellNet.IMAP.Types
+import System.Exit
 
 import System.Exit
 
 import Test.HUnit
+
+data ReadStep = ReadLine ByteString | ReadBytes ByteString
+
+scriptedStream :: [ReadStep] -> IO (BSStream, IO ByteString)
+scriptedStream steps = do
+    input <- newIORef steps
+    output <- newIORef []
+    return (BSStream
+        { bsGetLine = popLine input
+        , bsGet = popBytes input
+        , bsPut = \bytes -> modifyIORef' output (bytes:)
+        , bsFlush = return ()
+        , bsClose = return ()
+        , bsIsOpen = return True
+        , bsWaitForInput = \_ -> return False
+        }, B.concat . reverse <$> readIORef output)
+  where
+    popLine input = do
+        steps' <- readIORef input
+        case steps' of
+            ReadLine line : rest -> writeIORef input rest >> return line
+            ReadBytes _ : _ -> assertFailure "expected test stream line, got bytes"
+            [] -> assertFailure "test stream exhausted while reading a line"
+
+    popBytes input n = do
+        steps' <- readIORef input
+        case steps' of
+            ReadBytes bytes : rest ->
+                let (chunk, remainder) = BS.splitAt n bytes
+                    next = if BS.null remainder then rest else ReadBytes remainder : rest
+                in writeIORef input next >> return chunk
+            ReadLine _ : _ -> assertFailure "expected test stream bytes, got a line"
+            [] -> assertFailure "test stream exhausted while reading bytes"
+
+scriptedConnection :: [ReadStep] -> IO (IMAPConnection, IO ByteString)
+scriptedConnection steps = do
+    (testStream, written) <- scriptedStream steps
+    conn <- newConnection testStream
+    return (conn, written)
+
+line :: String -> ReadStep
+line = ReadLine . BS.pack
+
+okLine :: String -> ReadStep
+okLine = line . ("000000 OK " ++)
+
+commandBytes :: String -> ByteString
+commandBytes cmd = BS.pack (cmd ++ "\r\n")
+
+assertCommand :: String -> ByteString -> [ReadStep] -> (IMAPConnection -> IO a) -> Test
+assertCommand name expected steps action =
+    name ~: TestCase $ do
+        (conn, written) <- scriptedConnection steps
+        _ <- action conn
+        actual <- written
+        expected @=? actual
 
 baseTest =
     [(OK Nothing "LOGIN Completed", MboxUpdate Nothing Nothing, ())
@@ -88,6 +152,13 @@ listTest =
       ~=? eval' pLsub "A002" "* LSUB () \".\" #news.comp.mail.mime\r\n\
                              \* LSUB () \".\" #news.comp.mail.misc\r\n\
                              \A002 OK LSUB completed\r\n"
+    , ( OK Nothing "LIST completed"
+      , MboxUpdate Nothing Nothing
+      , [([], "/", "Entwürfe")
+        ,([], "/", "A&B")])
+      ~=? eval' pList "A003" "* LIST () \"/\" Entw&APw-rfe\r\n\
+                             \* LIST () \"/\" A&-B\r\n\
+                             \A003 OK LIST completed\r\n"
     ]
 
 statusTest =
@@ -184,6 +255,69 @@ fetchTest =
                               \a005 OK +FLAGS completed\r\n"
     ]
 
+imapCommandTest =
+    [ assertCommand "create quotes mailbox"
+          (commandBytes "000000 CREATE \"foo bar\"")
+          [okLine "CREATE completed"]
+          (\conn -> IMAP.create conn "foo bar")
+    , assertCommand "delete quotes mailbox"
+          (commandBytes "000000 DELETE \"foo bar\"")
+          [okLine "DELETE completed"]
+          (\conn -> IMAP.delete conn "foo bar")
+    , assertCommand "rename quotes mailboxes"
+          (commandBytes "000000 RENAME \"old name\" \"new name\"")
+          [okLine "RENAME completed"]
+          (\conn -> IMAP.rename conn "old name" "new name")
+    , assertCommand "subscribe quotes mailbox"
+          (commandBytes "000000 SUBSCRIBE \"foo bar\"")
+          [okLine "SUBSCRIBE completed"]
+          (\conn -> IMAP.subscribe conn "foo bar")
+    , assertCommand "unsubscribe quotes mailbox"
+          (commandBytes "000000 UNSUBSCRIBE \"foo bar\"")
+          [okLine "UNSUBSCRIBE completed"]
+          (\conn -> IMAP.unsubscribe conn "foo bar")
+    , assertCommand "select escapes mailbox"
+          (commandBytes "000000 SELECT \"foo\\\"bar\"")
+          [okLine "[READ-WRITE] SELECT completed"]
+          (\conn -> IMAP.select conn "foo\"bar")
+    , assertCommand "select encodes utf7 mailbox"
+          (commandBytes "000000 SELECT \"Entw&APw-rfe\"")
+          [okLine "[READ-WRITE] SELECT completed"]
+          (\conn -> IMAP.select conn "Entwürfe")
+    , assertCommand "select encodes ampersand"
+          (commandBytes "000000 SELECT \"A&-B\"")
+          [okLine "[READ-WRITE] SELECT completed"]
+          (\conn -> IMAP.select conn "A&B")
+    , "status quotes mailbox" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ line "* STATUS \"foo bar\" (MESSAGES 1)"
+              , okLine "STATUS completed"
+              ]
+          statusResult <- IMAP.status conn "foo bar" [MESSAGES]
+          [(MESSAGES, 1)] @=? statusResult
+          actual <- written
+          commandBytes "000000 STATUS \"foo bar\" (MESSAGES)" @=? actual
+    , "append quotes mailbox" ~: TestCase $ do
+          let mailData = BS.pack "Body"
+          (conn, written) <- scriptedConnection
+              [ line "+ Ready for literal"
+              , okLine "APPEND completed"
+              ]
+          IMAP.append conn "foo bar" mailData
+          actual <- written
+          B.concat [ commandBytes "000000 APPEND \"foo bar\" {6}"
+                   , BS.pack "Body\r\n\r\n"
+                   ] @=? actual
+    , assertCommand "copy quotes mailbox"
+          (commandBytes "000000 UID COPY 42 \"foo bar\"")
+          [okLine "COPY completed"]
+          (\conn -> IMAP.copy conn 42 "foo bar")
+    , assertCommand "move quotes mailbox"
+          (commandBytes "000000 UID MOVE 42 \"foo bar\"")
+          [okLine "MOVE completed"]
+          (\conn -> IMAP.move conn 42 "foo bar")
+    ]
+
 flagTest =
     [ "keyword show omits backslash" ~:
           "Custom" ~=? show (Keyword "Custom")
@@ -207,6 +341,7 @@ testData = [ "base" ~: baseTest
            , "expunge" ~: expungeTest
            , "search" ~: searchTest
            , "fetch" ~: fetchTest
+           , "imap commands" ~: imapCommandTest
            , "flags" ~: flagTest
            ]
 
