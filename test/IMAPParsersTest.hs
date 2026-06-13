@@ -503,6 +503,29 @@ imapUIDPlusTest =
           commandBytes "000000 UID EXPUNGE 3000:3002" @=? actual
     ]
 
+caseInsensitiveTest =
+    [ "lowercase tagged status code is accepted" ~:
+          (OK Nothing "done", MboxUpdate Nothing Nothing, ())
+          ~=? eval' pNone "a001" "a001 ok done\r\n"
+    , "lowercase bracketed response status code is accepted" ~:
+          (OK (Just READ_WRITE) "done", MboxUpdate Nothing Nothing, ())
+          ~=? eval' pNone "a001" "a001 OK [read-write] done\r\n"
+    , "untagged BYE is surfaced as a fatal response" ~:
+          (BAD Nothing "BYE: server shutting down", MboxUpdate Nothing Nothing, ())
+          ~=? eval' pNone "a001" "* BYE server shutting down\r\n"
+    , "lowercase flag names parse" ~:
+          [Seen, Deleted] ~=? eval' dvFlags "" "(\\seen \\deleted)"
+    , "empty SEARCH response yields no uids" ~:
+          (OK Nothing "done", MboxUpdate Nothing Nothing, [])
+          ~=? eval' pSearch "a001" "* SEARCH\r\na001 OK done\r\n"
+    , "lowercase SEARCH keyword with uids parses" ~:
+          (OK Nothing "done", MboxUpdate Nothing Nothing, [1, 2, 3])
+          ~=? eval' pSearch "a001" "* search 1 2 3\r\na001 OK done\r\n"
+    , "NIL hierarchy separator in LIST parses" ~:
+          (OK Nothing "done", MboxUpdate Nothing Nothing, [([], "", "INBOX")])
+          ~=? eval' pList "a001" "* LIST () NIL INBOX\r\na001 OK done\r\n"
+    ]
+
 testData = [ "base" ~: baseTest
            , "capability" ~: capabilityTest
            , "noop" ~: noopTest
@@ -516,6 +539,7 @@ testData = [ "base" ~: baseTest
            , "flags" ~: flagTest
            , "imap fetch api" ~: imapFetchTest
            , "imap uidplus api" ~: imapUIDPlusTest
+           , "case insensitivity" ~: caseInsensitiveTest
            ]
 
 

@@ -17,6 +17,10 @@ where
 import Text.Packrat.Parse hiding (space, spaces)
 import Text.Packrat.Pos
 
+import Data.Char
+    ( toLower
+    , toUpper
+    )
 import Data.Maybe
 
 import Data.ByteString (ByteString)
@@ -63,147 +67,147 @@ mkMboxUpdate untagged = (MboxUpdate exists' recent', others)
           others = catRights untagged
 
 pNone :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, ())
-Parser pNone =
-    do untagged <- many pOtherLine
-       resp <- Parser pDone
-       let (mboxUp, _) = mkMboxUpdate untagged
-       return (resp, mboxUp, ())
+Parser pNone = pWithTaggedOrFatal pOtherLine (const ())
 
 pCapability :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [String])
-Parser pCapability =
-    do untagged <- many (pCapabilityLine <|> pOtherLine)
-       resp <- Parser pDone
-       let (mboxUp, caps) = mkMboxUpdate untagged
-       return (resp, mboxUp, concat caps)
+Parser pCapability = pWithTaggedOrFatal (pCapabilityLine <|> pOtherLine) concat
 
 pList :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [([Attribute], String, MailboxName)])
-Parser pList =
-    do untagged <- many (pListLine "LIST" <|> pOtherLine)
-       resp <- Parser pDone
-       let (mboxUp, listRes) = mkMboxUpdate untagged
-       return (resp, mboxUp, listRes)
+Parser pList = pWithTaggedOrFatal (pListLine "LIST" <|> pOtherLine) id
 
 pLsub :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [([Attribute], String, MailboxName)])
-Parser pLsub =
-    do untagged <- many (pListLine "LSUB" <|> pOtherLine)
-       resp <- Parser pDone
-       let (mboxUp, listRes) = mkMboxUpdate untagged
-       return (resp, mboxUp, listRes)
+Parser pLsub = pWithTaggedOrFatal (pListLine "LSUB" <|> pOtherLine) id
 
 pStatus :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [(MailboxStatus, Integer)])
-Parser pStatus =
-    do untagged <- many (pStatusLine <|> pOtherLine)
-       resp <- Parser pDone
-       let (mboxUp, statRes) = mkMboxUpdate untagged
-       return (resp, mboxUp, concat statRes)
+Parser pStatus = pWithTaggedOrFatal (pStatusLine <|> pOtherLine) concat
 
 pExpunge :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [Integer])
 Parser pExpunge =
-    do untagged <- many ((do string "* "
-                             n <- pExpungeLine
-                             return $ Right ("EXPUNGE", n))
-                         <|> pOtherLine)
-       resp <- Parser pDone
-       let (mboxUp, expunges) = mkMboxUpdate untagged
-       return (resp, mboxUp, lookups "EXPUNGE" expunges)
+    pWithTaggedOrFatal ((do string "* "
+                            n <- pExpungeLine
+                            return $ Right ("EXPUNGE", n))
+                        <|> pOtherLine)
+                       (lookups "EXPUNGE")
 
 pSearch :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [UID])
-Parser pSearch =
-    do untagged <- many (pSearchLine <|> pOtherLine)
-       resp <- Parser pDone
-       let (mboxUp, searchRes) = mkMboxUpdate untagged
-       return (resp, mboxUp, concat searchRes)
+Parser pSearch = pWithTaggedOrFatal (pSearchLine <|> pOtherLine) concat
 
 
 pSelect :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, MailboxInfo)
 Parser pSelect =
-    do untagged <- many (pSelectLine
-                         <|> (do string "* "
-                                 anyChar `manyTill` crlfP
-                                 return id))
-       resp <- Parser pDone
-       let box = case resp of
-                   OK writable _ ->
-                       emptyBox { _isWritable = isJust writable && fromJust writable == READ_WRITE }
-                   _ -> emptyBox
-       return (resp, MboxUpdate Nothing Nothing, foldl (flip ($)) box untagged)
+    tagged <|> fatal
     where emptyBox = MboxInfo "" 0 0 [] [] False False 0 0
+          tagged =
+              do untagged <- many (pSelectLine
+                                   <|> (do string "* "
+                                           anyChar `manyTill` crlfP
+                                           return id))
+                 resp <- Parser pDone
+                 let box = case resp of
+                             OK writable _ ->
+                                 emptyBox { _isWritable = isJust writable && fromJust writable == READ_WRITE }
+                             _ -> emptyBox
+                 return (resp, MboxUpdate Nothing Nothing, foldl (flip ($)) box untagged)
+          fatal =
+              do resp <- pFatalLine
+                 return (resp, MboxUpdate Nothing Nothing, emptyBox)
 
 pFetch :: RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, [(Integer, [(String, String)])])
-Parser pFetch =
-    do untagged <- many (pFetchLine <|> pOtherLine)
-       resp <- Parser pDone
-       let (mboxUp, fetchRes) = mkMboxUpdate untagged
-       return (resp, mboxUp, fetchRes)
+Parser pFetch = pWithTaggedOrFatal (pFetchLine <|> pOtherLine) id
+
+pWithTaggedOrFatal :: Parser RespDerivs (Either (String, Integer) b)
+                   -> ([b] -> v)
+                   -> Parser RespDerivs (ServerResponse, MboxUpdate, v)
+pWithTaggedOrFatal lineParser build = tagged <|> fatal
+  where
+    tagged = do untagged <- many lineParser
+                resp <- Parser pDone
+                let (mboxUp, values) = mkMboxUpdate untagged
+                return (resp, mboxUp, build values)
+    fatal = do resp <- pFatalLine
+               return (resp, MboxUpdate Nothing Nothing, build [])
 
 pDone :: RespDerivs -> Result RespDerivs ServerResponse
 Parser pDone = do tag <- Parser advTag
                   string tag >> space
-                  respCode <- parseCode
-                  space
-                  stat <- optional (do s <- parseStatusCode
-                                       space >> return s)
-                  body <- anyChar `manyTill` crlfP
-                  return $ respCode stat body
-    where parseCode = choice $ [ string "OK" >> return OK
-                               , string "NO" >> return NO
-                               , string "BAD" >> return BAD
-                               , string "PREAUTH" >> return PREAUTH
-                               ]
-          parseStatusCode =
-              between (char '[') (char ']') $
-              choice [ string "ALERT" >> return ALERT
-                     , do { string "BADCHARSET"
-                          ; ws <- optional parenWords
-                          ; return $ BADCHARSET $ fromMaybe [] ws }
-                     , do { string "CAPABILITY"
-                          ; space
-                          ; ws <- (many1 $ noneOf " ]") `sepBy1` space
-                          ; return $ CAPABILITY_sc ws }
-                     , string "PARSE" >> return PARSE
-                     , do { string "PERMANENTFLAGS" >> space >> char '('
-                          ; fs <- pFlag `sepBy1` spaces1
-                          ; char ')'
-                          ; return $ PERMANENTFLAGS fs }
-                     , string "READ-ONLY" >> return READ_ONLY
-                     , string "READ-WRITE" >> return READ_WRITE
-                     , string "TRYCREATE" >> return TRYCREATE
-                     , do { string "APPENDUID" >> space
-                          ; uidValidity <- pUID
-                          ; space
-                          ; uid <- pUID
-                          ; return $ APPENDUID_sc $ AppendUID uidValidity uid }
-                     , do { string "COPYUID" >> space
-                          ; uidValidity <- pUID
-                          ; space
-                          ; sourceSet <- pUIDSet
-                          ; space
-                          ; destinationSet <- pUIDSet
-                          ; return $ COPYUID_sc $ CopyUID uidValidity sourceSet destinationSet }
-                     , do { string "UNSEEN" >> space
-                          ; num <- many1 digit
-                          ; return $ UNSEEN_sc $ read num }
-                     , do { string "UIDNEXT" >> space
-                          ; num <- many1 digit
-                          ; return $ UIDNEXT_sc $ read num }
-                     , do { string "UIDVALIDITY" >> space
-                          ; num <- many1 digit
-                          ; return $ UIDVALIDITY_sc $ read num }
-                     , string "UIDNOTSTICKY" >> return UIDNOTSTICKY
-                     ]
-          parenWords = between (space >> char '(') (char ')')
+                  respCode <- pRespCode
+                  pRespText respCode
+
+pFatalLine :: Parser RespDerivs ServerResponse
+pFatalLine = do string "* "
+                stringCI "BYE"
+                pRespText (\stat body -> BAD stat ("BYE: " ++ body))
+
+pRespCode :: Parser RespDerivs (Maybe StatusCode -> String -> ServerResponse)
+pRespCode = choice [ stringCI "OK" >> return OK
+                   , stringCI "NO" >> return NO
+                   , stringCI "BAD" >> return BAD
+                   , stringCI "PREAUTH" >> return PREAUTH
+                   ]
+
+pRespText :: (Maybe StatusCode -> String -> ServerResponse)
+          -> Parser RespDerivs ServerResponse
+pRespText respCode = do space
+                        stat <- optional (do s <- pStatusCode
+                                             space >> return s)
+                        body <- anyChar `manyTill` crlfP
+                        return $ respCode stat body
+
+pStatusCode :: Parser RespDerivs StatusCode
+pStatusCode =
+    between (char '[') (char ']') $
+    choice [ stringCI "ALERT" >> return ALERT
+           , do { stringCI "BADCHARSET"
+                ; ws <- optional parenWords
+                ; return $ BADCHARSET $ fromMaybe [] ws }
+           , do { stringCI "CAPABILITY"
+                ; space
+                ; ws <- (many1 $ noneOf " ]") `sepBy1` space
+                ; return $ CAPABILITY_sc ws }
+           , stringCI "PARSE" >> return PARSE
+           , do { stringCI "PERMANENTFLAGS" >> space >> char '('
+                ; fs <- pFlag `sepBy` spaces1
+                ; char ')'
+                ; return $ PERMANENTFLAGS fs }
+           , stringCI "READ-ONLY" >> return READ_ONLY
+           , stringCI "READ-WRITE" >> return READ_WRITE
+           , stringCI "TRYCREATE" >> return TRYCREATE
+           , do { stringCI "APPENDUID" >> space
+                ; uidValidity <- pUID
+                ; space
+                ; uid <- pUID
+                ; return $ APPENDUID_sc $ AppendUID uidValidity uid }
+           , do { stringCI "COPYUID" >> space
+                ; uidValidity <- pUID
+                ; space
+                ; sourceSet <- pUIDSet
+                ; space
+                ; destinationSet <- pUIDSet
+                ; return $ COPYUID_sc $ CopyUID uidValidity sourceSet destinationSet }
+           , do { stringCI "UNSEEN" >> space
+                ; num <- many1 digit
+                ; return $ UNSEEN_sc $ read num }
+           , do { stringCI "UIDNEXT" >> space
+                ; num <- many1 digit
+                ; return $ UIDNEXT_sc $ read num }
+           , do { stringCI "UIDVALIDITY" >> space
+                ; num <- many1 digit
+                ; return $ UIDVALIDITY_sc $ read num }
+           , stringCI "UIDNOTSTICKY" >> return UIDNOTSTICKY
+           ]
+    where parenWords = between (space >> char '(') (char ')')
                          (many1 (noneOf " )") `sepBy1` space)
           pUID = many1 digit >>= return . read
-          pUIDSet = many1 (digit <|> char ':' <|> char ',')
+          pUIDSet = many1 (digit <|> char ':' <|> char ',' <|> char '*')
 
 pFlag :: Parser RespDerivs Flag
 pFlag = do char '\\'
-           choice [ string "Seen"     >> return Seen
-                  , string "Answered" >> return Answered
-                  , string "Flagged"  >> return Flagged
-                  , string "Deleted"  >> return Deleted
-                  , string "Draft"    >> return Draft
-                  , string "Recent"   >> return Recent
+           choice [ stringCI "Seen"     >> return Seen
+                  , stringCI "Answered" >> return Answered
+                  , stringCI "Flagged"  >> return Flagged
+                  , stringCI "Deleted"  >> return Deleted
+                  , stringCI "Draft"    >> return Draft
+                  , stringCI "Recent"   >> return Recent
                   , char '*'          >> return (Keyword "*")
                   , many1 atomChar    >>= return . Keyword . ('\\':) ]
     <|> (many1 atomChar >>= return . Keyword)
@@ -215,12 +219,30 @@ Parser pParenFlags = do char '('
                         return fs
 
 atomChar :: Derivs d => Parser d Char
-atomChar = noneOf " (){%*\"\\]"
+atomChar = noneOf " (){%*\"\\]\r\n"
+
+pQuotedString :: Parser RespDerivs String
+pQuotedString = between (char '"') (char '"') (many quotedChar)
+    where quotedChar = (char '\\' >> anyChar) <|> noneOf "\"\\\r\n"
+
+pLiteralString :: Parser RespDerivs String
+pLiteralString = do optional (char '~')
+                    char '{'
+                    num <- many1 digit >>= return . read
+                    optional (char '+')
+                    char '}' >> crlfP
+                    sequence $ replicate num anyChar
+
+pAString :: Parser RespDerivs String
+pAString = pQuotedString <|> pLiteralString <|> many1 atomChar
+
+pMailboxName :: Parser RespDerivs MailboxName
+pMailboxName = decodeMailboxName <$> pAString
 
 pNumberedLine :: String -> Parser RespDerivs Integer
 pNumberedLine str = do num <- many1 digit
                        space
-                       string str
+                       stringCI str
                        crlfP
                        return $ read num
 
@@ -238,7 +260,9 @@ pOtherLine = do string "* "
 
 
 pCapabilityLine :: Parser RespDerivs (Either a [String])
-pCapabilityLine = do string "* CAPABILITY "
+pCapabilityLine = do string "* "
+                     stringCI "CAPABILITY"
+                     space
                      ws <- many1 (noneOf " \r") `sepBy` space
                      crlfP
                      return $ Right ws
@@ -246,65 +270,54 @@ pCapabilityLine = do string "* CAPABILITY "
 pListLine :: String
           -> Parser RespDerivs (Either a ([Attribute], String, MailboxName))
 pListLine list =
-    do string "* " >> string list >> space
+    do string "* " >> stringCI list >> space
        attrs <- parseAttrs
        sep <- parseSep
        mbox <- parseMailbox
        return $ Right (attrs, sep, mbox)
     where parseAttr =
               do char '\\'
-                 choice [ string "Noinferiors" >> return Noinferiors
-                        , string "Noselect" >> return Noselect
-                        , string "Marked" >> return Marked
-                        , string "Unmarked" >> return Unmarked
+                 choice [ stringCI "Noinferiors" >> return Noinferiors
+                        , stringCI "Noselect" >> return Noselect
+                        , stringCI "Marked" >> return Marked
+                        , stringCI "Unmarked" >> return Unmarked
                         , many atomChar >>= return . OtherAttr
                         ]
           parseAttrs = do char '('
                           attrs <- parseAttr `sepBy` space
                           char ')'
                           return attrs
-          parseSep = space >> char '"' >> anyChar `manyTill` char '"'
+          parseSep = space >> ((string "NIL" >> return "") <|> pQuotedString)
           parseMailbox = do space
-                            mbox <- pListMailboxName
+                            mbox <- pMailboxName
                             crlfP
                             return mbox
 
-pListMailboxName :: Parser RespDerivs MailboxName
-pListMailboxName = decodeMailboxName <$> (pQuotedMailboxString <|> many1 (noneOf " \r\n"))
-
-pQuotedMailboxString :: Parser RespDerivs String
-pQuotedMailboxString = between (char '"') (char '"') (many quotedChar)
-    where quotedChar = (char '\\' >> noneOf "\r\n") <|> noneOf "\"\\\r\n"
-
 pStatusLine :: Parser RespDerivs (Either a [(MailboxStatus, Integer)])
 pStatusLine =
-    do string "* STATUS "
+    do string "* "
+       stringCI "STATUS"
+       space
        _ <- pMailboxName
        space
        stats <- between (char '(') (char ')') (parseStat `sepBy1` space)
        crlfP
        return $ Right stats
     where parseStat =
-              do cons <- choice [ string "MESSAGES"    >>= return . read
-                                , string "RECENT"      >>= return . read
-                                , string "UIDNEXT"     >>= return . read
-                                , string "UIDVALIDITY" >>= return . read
-                                , string "UNSEEN"      >>= return . read
+              do cons <- choice [ stringCI "MESSAGES"    >>= return . read
+                                , stringCI "RECENT"      >>= return . read
+                                , stringCI "UIDNEXT"     >>= return . read
+                                , stringCI "UIDVALIDITY" >>= return . read
+                                , stringCI "UNSEEN"      >>= return . read
                                 ]
                  space
                  num <- many1 digit >>= return . read
                  return (cons, num)
 
-pMailboxName :: Parser RespDerivs MailboxName
-pMailboxName = pQuotedString <|> many1 (noneOf " \r\n")
-
-pQuotedString :: Parser RespDerivs String
-pQuotedString = between (char '"') (char '"') (many quotedChar)
-    where quotedChar = (char '\\' >> noneOf "\r\n") <|> noneOf "\"\\\r\n"
-
 pSearchLine :: Parser RespDerivs (Either a [UID])
-pSearchLine = do string "* SEARCH "
-                 nums <- (many1 digit) `sepBy` space
+pSearchLine = do string "* "
+                 stringCI "SEARCH"
+                 nums <- option [] (space >> ((many1 digit) `sepBy` space))
                  crlfP
                  return $ Right $ map read nums
 
@@ -314,18 +327,19 @@ pSelectLine =
        choice [ pExistsLine >>= \n -> return (\mbox -> mbox { _exists = n })
               , pRecentLine >>= \n -> return (\mbox -> mbox { _recent = n })
               , pFlags  >>= \fs -> return (\mbox -> mbox { _flags = fs })
-              , string "OK " >> okResps ]
-    where pFlags = do string "FLAGS "
+              , stringCI "OK" >> space >> okResps ]
+    where pFlags = do stringCI "FLAGS"
+                      space
                       char '('
                       fs <- pFlag `sepBy` space
                       char ')' >> crlfP
                       return fs
           okResps =
               do char '['
-                 v <- choice [ do { string "UNSEEN "
+                 v <- choice [ do { stringCI "UNSEEN" >> space
                                   ; many1 digit
                                   ; return id }
-                             , do { string "PERMANENTFLAGS ("
+                             , do { stringCI "PERMANENTFLAGS" >> space >> char '('
                                   ; fs <- pFlag `sepBy` space
                                   ; char ')'
                                   ; return $ \mbox ->
@@ -333,11 +347,11 @@ pSelectLine =
                                                Keyword "*" `elem` fs
                                            , _permanentFlags =
                                                filter (/= Keyword "*") fs } }
-                             , do { string "UIDNEXT "
+                             , do { stringCI "UIDNEXT" >> space
                                   ; n <- many1 digit
                                   ; return $ \mbox ->
                                       mbox { _uidNext = read n } }
-                             , do { string "UIDVALIDITY "
+                             , do { stringCI "UIDVALIDITY" >> space
                                   ; n <- many1 digit
                                   ; return $ \mbox ->
                                       mbox { _uidValidity = read n } }
@@ -350,32 +364,36 @@ pFetchLine :: Parser RespDerivs (Either a (Integer, [(String, String)]))
 pFetchLine =
     do string "* "
        num <- many1 digit
-       string " FETCH" >> spaces
+       space >> stringCI "FETCH" >> spaces
        char '('
        pairs <- pPair `manyTill` char ')'
        crlfP
        return $ Right $ (read num, pairs)
-    where pPair = do key <- (do k  <- anyChar `manyTill` char '['
-                                ps <- anyChar `manyTill` char ']'
-                                space
-                                return (k++"["++ps++"]"))
-                        <|> anyChar `manyTill` space
-                     value <- (do char '('
-                                  v <- pParen `sepBy` space
-                                  char ')'
-                                  return ("("++unwords v++")"))
-                          <|> (do char '{'
-                                  num <- many1 digit >>= return . read
-                                  char '}' >> crlfP
-                                  sequence $ replicate num anyChar)
-                          <|> (do char '"'
-                                  v <- noneOf "\"" `manyTill` char '"'
-                                  return ("\""++v++"\""))
-                          <|> many1 atomChar
+    where pPair = do key <- pFetchKey
+                     value <- pFetchValue
                      spaces
                      return (key, value)
-          pParen = (do char '"'
-                       v <- noneOf "\"" `manyTill` char '"'
+          pFetchKey = do name <- many1 (noneOf " [)\r\n")
+                         section <- option "" pSection
+                         space
+                         return (map toUpper name ++ section)
+          pSection = do char '['
+                        ps <- anyChar `manyTill` char ']'
+                        origin <- option "" pOrigin
+                        return ("[" ++ ps ++ "]" ++ origin)
+          pOrigin = do char '<'
+                       n <- many1 digit
+                       char '>'
+                       return ("<" ++ n ++ ">")
+          pFetchValue = (do char '('
+                            v <- pParen `sepBy` space
+                            char ')'
+                            return ("("++unwords v++")"))
+                    <|> pLiteralString
+                    <|> (do v <- pQuotedString
+                            return ("\""++v++"\""))
+                    <|> pAtomValue
+          pParen = (do v <- pQuotedString
                        return ("\""++v++"\""))
                <|> (do char '('
                        v <- pParen `sepBy` space
@@ -385,11 +403,22 @@ pFetchLine =
                        v <- many1 atomChar
                        return ('\\':v))
                <|> many1 atomChar
+          pAtomValue = do v <- many1 atomChar
+                          return $ if map toUpper v == "NIL" then "" else v
 
 ----------------------------------------------------------------------
 -- auxiliary parsers
 space :: Parser RespDerivs Char
 space   = char ' '
+
+charCI :: Derivs d => Char -> Parser d Char
+charCI c = charIf ((toLower c ==) . toLower) <?> show c
+
+stringCI :: Derivs d => String -> Parser d String
+stringCI str = go str <?> show str
+  where
+    go [] = return str
+    go (c:cs) = charCI c >> go cs
 
 spaces, spaces1 :: Parser RespDerivs String
 spaces  = many space
