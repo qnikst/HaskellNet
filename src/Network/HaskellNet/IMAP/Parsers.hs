@@ -168,6 +168,18 @@ Parser pDone = do tag <- Parser advTag
                      , string "READ-ONLY" >> return READ_ONLY
                      , string "READ-WRITE" >> return READ_WRITE
                      , string "TRYCREATE" >> return TRYCREATE
+                     , do { string "APPENDUID" >> space
+                          ; uidValidity <- pUID
+                          ; space
+                          ; uid <- pUID
+                          ; return $ APPENDUID_sc $ AppendUID uidValidity uid }
+                     , do { string "COPYUID" >> space
+                          ; uidValidity <- pUID
+                          ; space
+                          ; sourceSet <- pUIDSet
+                          ; space
+                          ; destinationSet <- pUIDSet
+                          ; return $ COPYUID_sc $ CopyUID uidValidity sourceSet destinationSet }
                      , do { string "UNSEEN" >> space
                           ; num <- many1 digit
                           ; return $ UNSEEN_sc $ read num }
@@ -177,9 +189,12 @@ Parser pDone = do tag <- Parser advTag
                      , do { string "UIDVALIDITY" >> space
                           ; num <- many1 digit
                           ; return $ UIDVALIDITY_sc $ read num }
+                     , string "UIDNOTSTICKY" >> return UIDNOTSTICKY
                      ]
           parenWords = between (space >> char '(') (char ')')
                          (many1 (noneOf " )") `sepBy1` space)
+          pUID = many1 digit >>= return . read
+          pUIDSet = many1 (digit <|> char ':' <|> char ',')
 
 pFlag :: Parser RespDerivs Flag
 pFlag = do char '\\'
