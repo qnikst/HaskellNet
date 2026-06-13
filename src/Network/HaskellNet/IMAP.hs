@@ -37,6 +37,8 @@ import Network.Socket (PortNumber)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TextEncoding
 
 import Control.Monad
 
@@ -84,13 +86,13 @@ instance Show SearchQuery where
               showQuery ALLs            = "ALL"
               showQuery (FLAG f)        = showFlag f
               showQuery (UNFLAG f)      = "UN" ++ showFlag f
-              showQuery (BCCs addr)     = "BCC " ++ addr
+              showQuery (BCCs addr)     = "BCC " ++ quoteIMAPString addr
               showQuery (BEFOREs t)     = "BEFORE " ++ dateToStringIMAP t
-              showQuery (BODYs s)       = "BODY " ++ s
-              showQuery (CCs addr)      = "CC " ++ addr
-              showQuery (FROMs addr)    = "FROM " ++ addr
-              showQuery (HEADERs f v)   = "HEADER " ++ f ++ " " ++ v
-              showQuery (LARGERs siz)   = "LARGER {" ++ show siz ++ "}"
+              showQuery (BODYs s)       = "BODY " ++ quoteIMAPString s
+              showQuery (CCs addr)      = "CC " ++ quoteIMAPString addr
+              showQuery (FROMs addr)    = "FROM " ++ quoteIMAPString addr
+              showQuery (HEADERs f v)   = "HEADER " ++ f ++ " " ++ quoteIMAPString v
+              showQuery (LARGERs siz)   = "LARGER " ++ show siz
               showQuery NEWs            = "NEW"
               showQuery (NOTs qry)      = "NOT " ++ show qry
               showQuery OLDs            = "OLD"
@@ -100,11 +102,11 @@ instance Show SearchQuery where
               showQuery (SENTONs t)     = "SENTON " ++ dateToStringIMAP t
               showQuery (SENTSINCEs t)  = "SENTSINCE " ++ dateToStringIMAP t
               showQuery (SINCEs t)      = "SINCE " ++ dateToStringIMAP t
-              showQuery (SMALLERs siz)  = "SMALLER {" ++ show siz ++ "}"
-              showQuery (SUBJECTs s)    = "SUBJECT " ++ s
-              showQuery (TEXTs s)       = "TEXT " ++ s
-              showQuery (TOs addr)      = "TO " ++ addr
-              showQuery (XGMRAW s)      = "X-GM-RAW " ++ s
+              showQuery (SMALLERs siz)  = "SMALLER " ++ show siz
+              showQuery (SUBJECTs s)    = "SUBJECT " ++ quoteIMAPString s
+              showQuery (TEXTs s)       = "TEXT " ++ quoteIMAPString s
+              showQuery (TOs addr)      = "TO " ++ quoteIMAPString addr
+              showQuery (XGMRAW s)      = "X-GM-RAW " ++ quoteIMAPString s
               showQuery (UIDs uids)     = concat $ intersperse "," $
                                           map show uids
               showFlag Seen        = "SEEN"
@@ -150,9 +152,13 @@ sendCommand' c cmdstr = do
 
 sendCommandNoResponse :: IMAPConnection -> String -> IO Int
 sendCommandNoResponse c cmdstr = do
-  (_, num) <- withNextCommandNum c $ \num -> bsPutCrLf (stream c) $
-              BS.pack $ show6 num ++ " " ++ cmdstr
+  (_, num) <- withNextCommandNum c $ \num -> do
+              let bytes = encodeUtf8 $ show6 num ++ " " ++ cmdstr
+              BS.length bytes `seq` bsPutCrLf (stream c) bytes
   return num
+
+encodeUtf8 :: String -> ByteString
+encodeUtf8 = TextEncoding.encodeUtf8 . Text.pack
 
 show6 :: (Ord a, Num a, Show a) => a -> String
 show6 n | n > 100000 = show n
@@ -382,7 +388,30 @@ expunge :: IMAPConnection -> IO [Integer]
 expunge conn = sendCommand conn "EXPUNGE" pExpunge
 
 search :: IMAPConnection -> [SearchQuery] -> IO [UID]
-search conn queries = searchCharset conn "" queries
+search conn queries =
+    let charset = if any searchQueryNeedsUtf8 queries
+                  then "CHARSET UTF-8"
+                  else ""
+    in searchCharset conn charset queries
+
+-- | Whether a search query carries non-ASCII text and therefore needs an
+-- explicit @CHARSET UTF-8@ on the SEARCH command (RFC 3501 §6.4.4).
+searchQueryNeedsUtf8 :: SearchQuery -> Bool
+searchQueryNeedsUtf8 (BCCs s)       = containsNonAscii s
+searchQueryNeedsUtf8 (BODYs s)      = containsNonAscii s
+searchQueryNeedsUtf8 (CCs s)        = containsNonAscii s
+searchQueryNeedsUtf8 (FROMs s)      = containsNonAscii s
+searchQueryNeedsUtf8 (HEADERs f v)  = containsNonAscii f || containsNonAscii v
+searchQueryNeedsUtf8 (NOTs q)       = searchQueryNeedsUtf8 q
+searchQueryNeedsUtf8 (ORs q1 q2)    = searchQueryNeedsUtf8 q1 || searchQueryNeedsUtf8 q2
+searchQueryNeedsUtf8 (SUBJECTs s)   = containsNonAscii s
+searchQueryNeedsUtf8 (TEXTs s)      = containsNonAscii s
+searchQueryNeedsUtf8 (TOs s)        = containsNonAscii s
+searchQueryNeedsUtf8 (XGMRAW s)     = containsNonAscii s
+searchQueryNeedsUtf8 _              = False
+
+containsNonAscii :: String -> Bool
+containsNonAscii = any ((> 0x7f) . ord)
 
 searchCharset :: IMAPConnection -> Charset -> [SearchQuery]
               -> IO [UID]

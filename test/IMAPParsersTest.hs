@@ -526,6 +526,34 @@ caseInsensitiveTest =
           ~=? eval' pList "a001" "* LIST () NIL INBOX\r\na001 OK done\r\n"
     ]
 
+imapSearchApiTest =
+    [ "search quotes string arguments" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ line "* SEARCH 1 2", okLine "SEARCH completed" ]
+          _ <- IMAP.search conn [IMAP.SUBJECTs "hello world"]
+          actual <- written
+          commandBytes "000000 UID SEARCH SUBJECT \"hello world\"" @=? actual
+    , "search emits LARGER/SMALLER without braces" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ line "* SEARCH", okLine "SEARCH completed" ]
+          _ <- IMAP.search conn [IMAP.LARGERs 100, IMAP.SMALLERs 200]
+          actual <- written
+          commandBytes "000000 UID SEARCH LARGER 100 SMALLER 200" @=? actual
+    , "search omits charset for ascii queries" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ line "* SEARCH", okLine "SEARCH completed" ]
+          _ <- IMAP.search conn [IMAP.SUBJECTs "hello"]
+          actual <- written
+          commandBytes "000000 UID SEARCH SUBJECT \"hello\"" @=? actual
+    , "search adds CHARSET UTF-8 for non-ascii queries" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ line "* SEARCH", okLine "SEARCH completed" ]
+          _ <- IMAP.search conn [IMAP.SUBJECTs "\252ber"]
+          actual <- written
+          assertBool "expected CHARSET UTF-8 in command"
+              (BS.pack "UID SEARCH CHARSET UTF-8 SUBJECT" `B.isInfixOf` actual)
+    ]
+
 testData = [ "base" ~: baseTest
            , "capability" ~: capabilityTest
            , "noop" ~: noopTest
@@ -540,6 +568,7 @@ testData = [ "base" ~: baseTest
            , "imap fetch api" ~: imapFetchTest
            , "imap uidplus api" ~: imapUIDPlusTest
            , "case insensitivity" ~: caseInsensitiveTest
+           , "imap search api" ~: imapSearchApiTest
            ]
 
 
