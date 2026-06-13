@@ -597,6 +597,24 @@ imapRobustnessTest =
           BS.empty @=? body
     ]
 
+imapHardeningTest =
+    [ assertThrowsContaining "login rejects CRLF in username" "CR, LF, or NUL"
+          (do (conn, _) <- scriptedConnection []
+              IMAP.login conn "user\r\nA NOOP" "pass")
+    , assertThrowsContaining "select rejects CRLF in mailbox name" "CR, LF, or NUL"
+          (do (conn, _) <- scriptedConnection []
+              IMAP.select conn "INBOX\r\nA001 DELETE victim")
+    , assertThrowsContaining "search rejects LF in a string query" "CR, LF, or NUL"
+          (do (conn, _) <- scriptedConnection []
+              IMAP.search conn [IMAP.SUBJECTs "hi\nthere"])
+    , assertThrowsContaining "fetch rejects NUL in command" "CR, LF, or NUL"
+          (do (conn, _) <- scriptedConnection []
+              IMAP.fetchByByteString conn 1 "BODY[\0]")
+    , assertThrowsContaining "store rejects CRLF in keyword flag" "CR, LF, or NUL"
+          (do (conn, _) <- scriptedConnection []
+              IMAP.store conn 1 (IMAP.PlusFlags [Keyword "a\r\nb"]))
+    ]
+
 testData = [ "base" ~: baseTest
            , "capability" ~: capabilityTest
            , "noop" ~: noopTest
@@ -613,6 +631,7 @@ testData = [ "base" ~: baseTest
            , "case insensitivity" ~: caseInsensitiveTest
            , "imap search api" ~: imapSearchApiTest
            , "imap robustness" ~: imapRobustnessTest
+           , "imap hardening" ~: imapHardeningTest
            ]
 
 
