@@ -8,10 +8,10 @@ module Network.HaskellNet.IMAP
       -- ** autenticated state commands
     , select, examine, create, delete, rename
     , subscribe, unsubscribe
-    , list, lsub, status, append, appendFull
+    , list, lsub, status, append, appendFull, appendFullUID
       -- ** selected state commands
     , check, close, expunge
-    , search, store, copy, move
+    , search, store, copy, copyUID, copyUIDs, copyUIDR, uidExpunge, uidExpungeR, move
     , idle
       -- * fetch commands
     , fetch, fetchHeader, fetchSize, fetchHeaderFields, fetchHeaderFieldsNot
@@ -20,6 +20,7 @@ module Network.HaskellNet.IMAP
     , fetchPeek, fetchRPeek
       -- * other types
     , Flag(..), Attribute(..), MailboxStatus(..)
+    , AppendUID(..), CopyUID(..), UIDSet
     , SearchQuery(..), FlagsQuery(..)
     , A.AuthType(..)
     )
@@ -36,6 +37,8 @@ import Network.Socket (PortNumber)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TextEncoding
 
 import Control.Monad
 
@@ -83,13 +86,13 @@ instance Show SearchQuery where
               showQuery ALLs            = "ALL"
               showQuery (FLAG f)        = showFlag f
               showQuery (UNFLAG f)      = "UN" ++ showFlag f
-              showQuery (BCCs addr)     = "BCC " ++ addr
+              showQuery (BCCs addr)     = "BCC " ++ quoteIMAPString addr
               showQuery (BEFOREs t)     = "BEFORE " ++ dateToStringIMAP t
-              showQuery (BODYs s)       = "BODY " ++ s
-              showQuery (CCs addr)      = "CC " ++ addr
-              showQuery (FROMs addr)    = "FROM " ++ addr
-              showQuery (HEADERs f v)   = "HEADER " ++ f ++ " " ++ v
-              showQuery (LARGERs siz)   = "LARGER {" ++ show siz ++ "}"
+              showQuery (BODYs s)       = "BODY " ++ quoteIMAPString s
+              showQuery (CCs addr)      = "CC " ++ quoteIMAPString addr
+              showQuery (FROMs addr)    = "FROM " ++ quoteIMAPString addr
+              showQuery (HEADERs f v)   = "HEADER " ++ f ++ " " ++ quoteIMAPString v
+              showQuery (LARGERs siz)   = "LARGER " ++ show siz
               showQuery NEWs            = "NEW"
               showQuery (NOTs qry)      = "NOT " ++ show qry
               showQuery OLDs            = "OLD"
@@ -99,11 +102,11 @@ instance Show SearchQuery where
               showQuery (SENTONs t)     = "SENTON " ++ dateToStringIMAP t
               showQuery (SENTSINCEs t)  = "SENTSINCE " ++ dateToStringIMAP t
               showQuery (SINCEs t)      = "SINCE " ++ dateToStringIMAP t
-              showQuery (SMALLERs siz)  = "SMALLER {" ++ show siz ++ "}"
-              showQuery (SUBJECTs s)    = "SUBJECT " ++ s
-              showQuery (TEXTs s)       = "TEXT " ++ s
-              showQuery (TOs addr)      = "TO " ++ addr
-              showQuery (XGMRAW s)      = "X-GM-RAW " ++ s
+              showQuery (SMALLERs siz)  = "SMALLER " ++ show siz
+              showQuery (SUBJECTs s)    = "SUBJECT " ++ quoteIMAPString s
+              showQuery (TEXTs s)       = "TEXT " ++ quoteIMAPString s
+              showQuery (TOs addr)      = "TO " ++ quoteIMAPString addr
+              showQuery (XGMRAW s)      = "X-GM-RAW " ++ quoteIMAPString s
               showQuery (UIDs uids)     = concat $ intersperse "," $
                                           map show uids
               showFlag Seen        = "SEEN"
@@ -149,9 +152,13 @@ sendCommand' c cmdstr = do
 
 sendCommandNoResponse :: IMAPConnection -> String -> IO Int
 sendCommandNoResponse c cmdstr = do
-  (_, num) <- withNextCommandNum c $ \num -> bsPutCrLf (stream c) $
-              BS.pack $ show6 num ++ " " ++ cmdstr
+  (_, num) <- withNextCommandNum c $ \num -> do
+              let bytes = encodeUtf8 $ show6 num ++ " " ++ cmdstr
+              BS.length bytes `seq` bsPutCrLf (stream c) bytes
   return num
+
+encodeUtf8 :: String -> ByteString
+encodeUtf8 = TextEncoding.encodeUtf8 . Text.pack
 
 show6 :: (Ord a, Num a, Show a) => a -> String
 show6 n | n > 100000 = show n
@@ -164,12 +171,19 @@ show6 n | n > 100000 = show n
 sendCommand :: IMAPConnection -> String
             -> (RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, v))
             -> IO v
-sendCommand imapc cmdstr pFunc =
+sendCommand imapc cmdstr pFunc = snd <$> sendCommandWithResponse imapc cmdstr pFunc
+
+-- | Like 'sendCommand', but also returns the tagged 'ServerResponse' so callers
+-- can inspect response codes (e.g. the UIDPLUS @COPYUID@/@APPENDUID@ codes).
+sendCommandWithResponse :: IMAPConnection -> String
+                        -> (RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, v))
+                        -> IO (ServerResponse, v)
+sendCommandWithResponse imapc cmdstr pFunc =
     do (buf, num) <- sendCommand' imapc cmdstr
        let (resp, mboxUp, value) = eval pFunc (show6 num) buf
        case resp of
          OK _ _        -> do mboxUpdate imapc mboxUp
-                             return value
+                             return (resp, value)
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
@@ -333,6 +347,14 @@ append conn mbox mailData = appendFull conn mbox mailData Nothing Nothing
 appendFull :: IMAPConnection -> MailboxName -> ByteString
            -> Maybe [Flag] -> Maybe CalendarTime -> IO ()
 appendFull conn mbox mailData flags' time =
+    appendFullUID conn mbox mailData flags' time >> return ()
+
+-- | Like 'appendFull', but returns the UIDPLUS @APPENDUID@ response code
+-- (RFC 4315) when the server supports it, identifying the UID assigned to the
+-- appended message. Returns 'Nothing' on servers that don't advertise UIDPLUS.
+appendFullUID :: IMAPConnection -> MailboxName -> ByteString
+              -> Maybe [Flag] -> Maybe CalendarTime -> IO (Maybe AppendUID)
+appendFullUID conn mbox mailData flags' time =
     do (buf, num) <- sendCommand' conn
                 (concat ["APPEND ", quoteMailboxName mbox
                         , fstr, tstr, " {" ++ show len ++ "}"])
@@ -343,13 +365,16 @@ appendFull conn mbox mailData flags' time =
        buf2 <- getResponse $ stream conn
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf2
        case resp of
-         OK _ _        -> mboxUpdate conn mboxUp
+         OK stat _     -> do mboxUpdate conn mboxUp
+                             return $ appendUIDFromStatus stat
          NO _ msg      -> fail ("NO: "++msg)
          BAD _ msg     -> fail ("BAD: "++msg)
          PREAUTH _ msg -> fail ("PREAUTH: "++msg)
     where len       = BS.length mailData
           tstr      = maybe "" ((" "++) . datetimeToStringIMAP) time
           fstr      = maybe "" ((" ("++) . (++")") . unwords . map show) flags'
+          appendUIDFromStatus (Just (APPENDUID_sc appendUID')) = Just appendUID'
+          appendUIDFromStatus _ = Nothing
 
 check :: IMAPConnection -> IO ()
 check conn = sendCommand conn "CHECK" pNone
@@ -363,7 +388,30 @@ expunge :: IMAPConnection -> IO [Integer]
 expunge conn = sendCommand conn "EXPUNGE" pExpunge
 
 search :: IMAPConnection -> [SearchQuery] -> IO [UID]
-search conn queries = searchCharset conn "" queries
+search conn queries =
+    let charset = if any searchQueryNeedsUtf8 queries
+                  then "CHARSET UTF-8"
+                  else ""
+    in searchCharset conn charset queries
+
+-- | Whether a search query carries non-ASCII text and therefore needs an
+-- explicit @CHARSET UTF-8@ on the SEARCH command (RFC 3501 §6.4.4).
+searchQueryNeedsUtf8 :: SearchQuery -> Bool
+searchQueryNeedsUtf8 (BCCs s)       = containsNonAscii s
+searchQueryNeedsUtf8 (BODYs s)      = containsNonAscii s
+searchQueryNeedsUtf8 (CCs s)        = containsNonAscii s
+searchQueryNeedsUtf8 (FROMs s)      = containsNonAscii s
+searchQueryNeedsUtf8 (HEADERs f v)  = containsNonAscii f || containsNonAscii v
+searchQueryNeedsUtf8 (NOTs q)       = searchQueryNeedsUtf8 q
+searchQueryNeedsUtf8 (ORs q1 q2)    = searchQueryNeedsUtf8 q1 || searchQueryNeedsUtf8 q2
+searchQueryNeedsUtf8 (SUBJECTs s)   = containsNonAscii s
+searchQueryNeedsUtf8 (TEXTs s)      = containsNonAscii s
+searchQueryNeedsUtf8 (TOs s)        = containsNonAscii s
+searchQueryNeedsUtf8 (XGMRAW s)     = containsNonAscii s
+searchQueryNeedsUtf8 _              = False
+
+containsNonAscii :: String -> Bool
+containsNonAscii = any ((> 0x7f) . ord)
 
 searchCharset :: IMAPConnection -> Charset -> [SearchQuery]
               -> IO [UID]
@@ -771,11 +819,56 @@ store :: IMAPConnection -> UID -> FlagsQuery -> IO ()
 store conn i q = storeFull conn (show i) q True >> return ()
 
 copyFull :: IMAPConnection -> String -> String -> IO ()
-copyFull conn uidStr mbox =
-    sendCommand conn ("UID COPY " ++ uidStr ++ " " ++ quoteMailboxName mbox) pNone
+copyFull conn uidStr mbox = copyUIDFull conn uidStr mbox >> return ()
+
+-- | Like 'copyFull', but returns the UIDPLUS @COPYUID@ response code (RFC 4315)
+-- when the server supports it, identifying the UIDs assigned to the copied
+-- messages in the destination mailbox. Returns 'Nothing' on servers that don't
+-- advertise UIDPLUS.
+copyUIDFull :: IMAPConnection -> String -> String -> IO (Maybe CopyUID)
+copyUIDFull conn uidStr mbox =
+    do (resp, ()) <- sendCommandWithResponse conn ("UID COPY " ++ uidStr ++ " " ++ quoteMailboxName mbox) pNone
+       return $ copyUIDFromResponse resp
+  where
+    copyUIDFromResponse (OK (Just (COPYUID_sc copyUID')) _) = Just copyUID'
+    copyUIDFromResponse _ = Nothing
 
 copy :: IMAPConnection -> UID -> MailboxName -> IO ()
 copy conn uid mbox     = copyFull conn (show uid) mbox
+
+-- | Copy a single message to a mailbox, returning its UIDPLUS @COPYUID@ code.
+copyUID :: IMAPConnection -> UID -> MailboxName -> IO (Maybe CopyUID)
+copyUID conn uid mbox = copyUIDFull conn (show uid) mbox
+
+-- | Copy a set of messages to a mailbox, returning the UIDPLUS @COPYUID@ code.
+copyUIDs :: IMAPConnection -> [UID] -> MailboxName -> IO (Maybe CopyUID)
+copyUIDs _ [] _ = fail "copyUIDs: empty UID set"
+copyUIDs conn uids mbox = copyUIDFull conn (showUIDList uids) mbox
+
+-- | Copy a contiguous UID range (inclusive) to a mailbox, returning the
+-- UIDPLUS @COPYUID@ code.
+copyUIDR :: IMAPConnection -> (UID, UID) -> MailboxName -> IO (Maybe CopyUID)
+copyUIDR conn range mbox = copyUIDFull conn (showUIDRange range) mbox
+
+-- | @UID EXPUNGE@ (RFC 4315): permanently remove only the \\Deleted messages
+-- within the given UID set, leaving other \\Deleted messages untouched. Returns
+-- the message sequence numbers expunged.
+uidExpunge :: IMAPConnection -> [UID] -> IO [Integer]
+uidExpunge _ [] = fail "uidExpunge: empty UID set"
+uidExpunge conn uids = uidExpungeBySet conn $ showUIDList uids
+
+-- | Like 'uidExpunge' but over a contiguous UID range (inclusive).
+uidExpungeR :: IMAPConnection -> (UID, UID) -> IO [Integer]
+uidExpungeR conn range = uidExpungeBySet conn $ showUIDRange range
+
+uidExpungeBySet :: IMAPConnection -> UIDSet -> IO [Integer]
+uidExpungeBySet conn uidSet = sendCommand conn ("UID EXPUNGE " ++ uidSet) pExpunge
+
+showUIDList :: [UID] -> UIDSet
+showUIDList = intercalate "," . map show
+
+showUIDRange :: (UID, UID) -> UIDSet
+showUIDRange (start, end) = show start ++ ":" ++ show end
 
 move :: IMAPConnection -> UID -> MailboxName -> IO ()
 move conn uid mboxname = sendCommand conn ("UID MOVE " ++ show uid ++ " " ++ quoteMailboxName mboxname) pNone
