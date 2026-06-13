@@ -8,10 +8,10 @@ module Network.HaskellNet.IMAP
       -- ** autenticated state commands
     , select, examine, create, delete, rename
     , subscribe, unsubscribe
-    , list, lsub, status, append, appendFull
+    , list, lsub, status, append, appendFull, appendFullUID
       -- ** selected state commands
     , check, close, expunge
-    , search, store, copy, move
+    , search, store, copy, copyUID, copyUIDs, copyUIDR, uidExpunge, uidExpungeR, move
     , idle
       -- * fetch commands
     , fetch, fetchHeader, fetchSize, fetchHeaderFields, fetchHeaderFieldsNot
@@ -20,6 +20,7 @@ module Network.HaskellNet.IMAP
     , fetchPeek, fetchRPeek
       -- * other types
     , Flag(..), Attribute(..), MailboxStatus(..)
+    , AppendUID(..), CopyUID(..), UIDSet
     , SearchQuery(..), FlagsQuery(..)
     , A.AuthType(..)
     )
@@ -36,6 +37,8 @@ import Network.Socket (PortNumber)
 
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.Text as Text
+import qualified Data.Text.Encoding as TextEncoding
 
 import Control.Monad
 
@@ -83,13 +86,13 @@ instance Show SearchQuery where
               showQuery ALLs            = "ALL"
               showQuery (FLAG f)        = showFlag f
               showQuery (UNFLAG f)      = "UN" ++ showFlag f
-              showQuery (BCCs addr)     = "BCC " ++ addr
+              showQuery (BCCs addr)     = "BCC " ++ quoteIMAPString addr
               showQuery (BEFOREs t)     = "BEFORE " ++ dateToStringIMAP t
-              showQuery (BODYs s)       = "BODY " ++ s
-              showQuery (CCs addr)      = "CC " ++ addr
-              showQuery (FROMs addr)    = "FROM " ++ addr
-              showQuery (HEADERs f v)   = "HEADER " ++ f ++ " " ++ v
-              showQuery (LARGERs siz)   = "LARGER {" ++ show siz ++ "}"
+              showQuery (BODYs s)       = "BODY " ++ quoteIMAPString s
+              showQuery (CCs addr)      = "CC " ++ quoteIMAPString addr
+              showQuery (FROMs addr)    = "FROM " ++ quoteIMAPString addr
+              showQuery (HEADERs f v)   = "HEADER " ++ f ++ " " ++ quoteIMAPString v
+              showQuery (LARGERs siz)   = "LARGER " ++ show siz
               showQuery NEWs            = "NEW"
               showQuery (NOTs qry)      = "NOT " ++ show qry
               showQuery OLDs            = "OLD"
@@ -99,11 +102,11 @@ instance Show SearchQuery where
               showQuery (SENTONs t)     = "SENTON " ++ dateToStringIMAP t
               showQuery (SENTSINCEs t)  = "SENTSINCE " ++ dateToStringIMAP t
               showQuery (SINCEs t)      = "SINCE " ++ dateToStringIMAP t
-              showQuery (SMALLERs siz)  = "SMALLER {" ++ show siz ++ "}"
-              showQuery (SUBJECTs s)    = "SUBJECT " ++ s
-              showQuery (TEXTs s)       = "TEXT " ++ s
-              showQuery (TOs addr)      = "TO " ++ addr
-              showQuery (XGMRAW s)      = "X-GM-RAW " ++ s
+              showQuery (SMALLERs siz)  = "SMALLER " ++ show siz
+              showQuery (SUBJECTs s)    = "SUBJECT " ++ quoteIMAPString s
+              showQuery (TEXTs s)       = "TEXT " ++ quoteIMAPString s
+              showQuery (TOs addr)      = "TO " ++ quoteIMAPString addr
+              showQuery (XGMRAW s)      = "X-GM-RAW " ++ quoteIMAPString s
               showQuery (UIDs uids)     = concat $ intersperse "," $
                                           map show uids
               showFlag Seen        = "SEEN"
@@ -135,9 +138,18 @@ connectIMAP hostname = connectIMAPPort hostname 143
 connectStream :: BSStream -> IO IMAPConnection
 connectStream s =
     do msg <- bsGetLine s
-       unless (and $ BS.zipWith (==) msg (BS.pack "* OK")) $
+       unless (isAcceptedGreeting msg) $
               fail "cannot connect to the server"
        newConnection s
+    where
+      isAcceptedGreeting msg =
+          case BS.words msg of
+            (star:greetingStatus:_) ->
+                star == BS.pack "*" && isReadyStatus greetingStatus
+            _ -> False
+      isReadyStatus greetingStatus =
+          let upperStatus = BS.map toUpper greetingStatus
+          in upperStatus == BS.pack "OK" || upperStatus == BS.pack "PREAUTH"
 
 ----------------------------------------------------------------------
 -- normal send commands
@@ -149,9 +161,13 @@ sendCommand' c cmdstr = do
 
 sendCommandNoResponse :: IMAPConnection -> String -> IO Int
 sendCommandNoResponse c cmdstr = do
-  (_, num) <- withNextCommandNum c $ \num -> bsPutCrLf (stream c) $
-              BS.pack $ show6 num ++ " " ++ cmdstr
+  (_, num) <- withNextCommandNum c $ \num -> do
+              let bytes = encodeUtf8 $ show6 num ++ " " ++ cmdstr
+              BS.length bytes `seq` bsPutCrLf (stream c) bytes
   return num
+
+encodeUtf8 :: String -> ByteString
+encodeUtf8 = TextEncoding.encodeUtf8 . Text.pack
 
 show6 :: (Ord a, Num a, Show a) => a -> String
 show6 n | n > 100000 = show n
@@ -164,12 +180,19 @@ show6 n | n > 100000 = show n
 sendCommand :: IMAPConnection -> String
             -> (RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, v))
             -> IO v
-sendCommand imapc cmdstr pFunc =
+sendCommand imapc cmdstr pFunc = snd <$> sendCommandWithResponse imapc cmdstr pFunc
+
+-- | Like 'sendCommand', but also returns the tagged 'ServerResponse' so callers
+-- can inspect response codes (e.g. the UIDPLUS @COPYUID@/@APPENDUID@ codes).
+sendCommandWithResponse :: IMAPConnection -> String
+                        -> (RespDerivs -> Result RespDerivs (ServerResponse, MboxUpdate, v))
+                        -> IO (ServerResponse, v)
+sendCommandWithResponse imapc cmdstr pFunc =
     do (buf, num) <- sendCommand' imapc cmdstr
        let (resp, mboxUp, value) = eval pFunc (show6 num) buf
        case resp of
          OK _ _        -> do mboxUpdate imapc mboxUp
-                             return value
+                             return (resp, value)
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
@@ -194,11 +217,25 @@ getResponse s = unlinesCRLF <$> getLs
                    then getLiteral l' (getLitLen l2)
                    else return l'
           crlfStr = BS.pack "\r\n"
-          isLiteral l = not (BS.null l) &&
-                        BS.last l == '}' &&
-                        BS.last (fst (BS.spanEnd isDigit (BS.init l))) == '{'
-          getLitLen = read . BS.unpack . snd . BS.spanEnd isDigit . BS.init
-          isTagged l = BS.head l == '*' && BS.head (BS.tail l) == ' '
+          literalLength :: ByteString -> Maybe Int
+          isLiteral = isJust . literalLength
+          getLitLen l = fromMaybe 0 (literalLength l)
+          literalLength l =
+              if BS.length l >= 3 && BS.last l == '}'
+              then parseLiteralTail $ reverse $ BS.unpack $ BS.init l
+              else Nothing
+          parseLiteralTail revBeforeClose =
+              case break (== '{') revBeforeClose of
+                (insideRev, _ : _) -> parseLiteralInside $ reverse insideRev
+                _ -> Nothing
+          parseLiteralInside inside =
+              let digits' = case reverse inside of
+                              '+' : rest -> reverse rest
+                              _ -> inside
+              in if not (null digits') && all isDigit digits'
+                 then Just $ read digits'
+                 else Nothing
+          isTagged l = BS.length l >= 2 && BS.take 2 l == BS.pack "* "
 
 mboxUpdate :: IMAPConnection -> MboxUpdate -> IO ()
 mboxUpdate conn (MboxUpdate exists' recent') = do
@@ -265,13 +302,12 @@ authenticate conn A.LOGIN username password =
 authenticate conn at username password =
     do (c, num) <- sendCommand' conn $ "AUTHENTICATE " ++ show at
        let challenge =
-               if BS.take 2 c == BS.pack "+ "
-               then A.b64Decode $ BS.unpack $ head $
-                    dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
+               if BS.take 1 c == BS.pack "+"
+               then A.b64Decode $ BS.unpack $ strip $ BS.drop 1 c
                else ""
        bsPutCrLf (stream conn) $ BS.pack $
                  A.auth at challenge username password
-       buf <- getResponse $ stream conn
+       buf <- getAuthResponse conn
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
          OK _ _        -> do mboxUpdate conn $ mboxUp
@@ -279,6 +315,16 @@ authenticate conn at username password =
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
+
+-- | Some SASL mechanisms (e.g. XOAUTH2) emit one or more @+@ challenge
+-- continuations before the final tagged response. Send an empty line in
+-- response to each so the exchange completes instead of stalling.
+getAuthResponse :: IMAPConnection -> IO ByteString
+getAuthResponse conn = do
+    buf <- getResponse $ stream conn
+    if BS.take 1 (strip buf) == BS.pack "+"
+       then bsPutCrLf (stream conn) BS.empty >> getAuthResponse conn
+       else return buf
 
 _select :: String -> IMAPConnection -> String -> IO ()
 _select cmd conn mboxName =
@@ -333,6 +379,14 @@ append conn mbox mailData = appendFull conn mbox mailData Nothing Nothing
 appendFull :: IMAPConnection -> MailboxName -> ByteString
            -> Maybe [Flag] -> Maybe CalendarTime -> IO ()
 appendFull conn mbox mailData flags' time =
+    appendFullUID conn mbox mailData flags' time >> return ()
+
+-- | Like 'appendFull', but returns the UIDPLUS @APPENDUID@ response code
+-- (RFC 4315) when the server supports it, identifying the UID assigned to the
+-- appended message. Returns 'Nothing' on servers that don't advertise UIDPLUS.
+appendFullUID :: IMAPConnection -> MailboxName -> ByteString
+              -> Maybe [Flag] -> Maybe CalendarTime -> IO (Maybe AppendUID)
+appendFullUID conn mbox mailData flags' time =
     do (buf, num) <- sendCommand' conn
                 (concat ["APPEND ", quoteMailboxName mbox
                         , fstr, tstr, " {" ++ show len ++ "}"])
@@ -343,13 +397,16 @@ appendFull conn mbox mailData flags' time =
        buf2 <- getResponse $ stream conn
        let (resp, mboxUp, ()) = eval pNone (show6 num) buf2
        case resp of
-         OK _ _        -> mboxUpdate conn mboxUp
+         OK stat _     -> do mboxUpdate conn mboxUp
+                             return $ appendUIDFromStatus stat
          NO _ msg      -> fail ("NO: "++msg)
          BAD _ msg     -> fail ("BAD: "++msg)
          PREAUTH _ msg -> fail ("PREAUTH: "++msg)
     where len       = BS.length mailData
           tstr      = maybe "" ((" "++) . datetimeToStringIMAP) time
           fstr      = maybe "" ((" ("++) . (++")") . unwords . map show) flags'
+          appendUIDFromStatus (Just (APPENDUID_sc appendUID')) = Just appendUID'
+          appendUIDFromStatus _ = Nothing
 
 check :: IMAPConnection -> IO ()
 check conn = sendCommand conn "CHECK" pNone
@@ -363,7 +420,30 @@ expunge :: IMAPConnection -> IO [Integer]
 expunge conn = sendCommand conn "EXPUNGE" pExpunge
 
 search :: IMAPConnection -> [SearchQuery] -> IO [UID]
-search conn queries = searchCharset conn "" queries
+search conn queries =
+    let charset = if any searchQueryNeedsUtf8 queries
+                  then "CHARSET UTF-8"
+                  else ""
+    in searchCharset conn charset queries
+
+-- | Whether a search query carries non-ASCII text and therefore needs an
+-- explicit @CHARSET UTF-8@ on the SEARCH command (RFC 3501 §6.4.4).
+searchQueryNeedsUtf8 :: SearchQuery -> Bool
+searchQueryNeedsUtf8 (BCCs s)       = containsNonAscii s
+searchQueryNeedsUtf8 (BODYs s)      = containsNonAscii s
+searchQueryNeedsUtf8 (CCs s)        = containsNonAscii s
+searchQueryNeedsUtf8 (FROMs s)      = containsNonAscii s
+searchQueryNeedsUtf8 (HEADERs f v)  = containsNonAscii f || containsNonAscii v
+searchQueryNeedsUtf8 (NOTs q)       = searchQueryNeedsUtf8 q
+searchQueryNeedsUtf8 (ORs q1 q2)    = searchQueryNeedsUtf8 q1 || searchQueryNeedsUtf8 q2
+searchQueryNeedsUtf8 (SUBJECTs s)   = containsNonAscii s
+searchQueryNeedsUtf8 (TEXTs s)      = containsNonAscii s
+searchQueryNeedsUtf8 (TOs s)        = containsNonAscii s
+searchQueryNeedsUtf8 (XGMRAW s)     = containsNonAscii s
+searchQueryNeedsUtf8 _              = False
+
+containsNonAscii :: String -> Bool
+containsNonAscii = any ((> 0x7f) . ord)
 
 searchCharset :: IMAPConnection -> Charset -> [SearchQuery]
               -> IO [UID]
@@ -374,16 +454,22 @@ searchCharset conn charset queries =
                            else "")
                     ++ unwords (map show queries)) pSearch
 
+-- | An untagged NIL means "no data" (RFC 3501); normalize it to an empty
+-- body so callers don't see the literal atom. Real bodies arrive as IMAP
+-- literals and are never the bare atom NIL.
+nilToEmpty :: ByteString -> ByteString
+nilToEmpty bs = if bs == BS.pack "NIL" then BS.empty else bs
+
 fetch :: IMAPConnection -> UID -> IO ByteString
 fetch conn uid =
     do lst <- fetchByByteString conn uid "BODY[]"
-       return $ fromMaybe BS.empty $ lookup' "BODY[]" lst
+       return $ nilToEmpty $ fromMaybe BS.empty $ lookup' "BODY[]" lst
 
 -- | Like 'fetch' but without marking the email as seen/read
 fetchPeek :: IMAPConnection -> UID -> IO ByteString
 fetchPeek conn uid =
     do lst <- fetchByByteString conn uid "BODY.PEEK[]"
-       return $ fromMaybe BS.empty $ lookup' "BODY[]" lst
+       return $ nilToEmpty $ fromMaybe BS.empty $ lookup' "BODY[]" lst
 
 fetchHeader :: IMAPConnection -> UID -> IO ByteString
 fetchHeader conn uid =
@@ -420,14 +506,14 @@ fetchR :: IMAPConnection -> (UID, UID)
        -> IO [(UID, ByteString)]
 fetchR conn r =
     do lst <- fetchByByteStringR conn r "BODY[]"
-       return $ map (\(uid, vs) -> (uid, fromMaybe BS.empty $
+       return $ map (\(uid, vs) -> (uid, nilToEmpty $ fromMaybe BS.empty $
                                        lookup' "BODY[]" vs)) lst
 
 -- | Like 'fetchR' but without marking the email as seen/read
 fetchRPeek :: IMAPConnection -> (UID, UID) -> IO [(UID, ByteString)]
 fetchRPeek conn range =
     do ls <- fetchByByteStringR conn range "BODY.PEEK[]"
-       return $ map (\(uid, vs) -> (uid, fromMaybe BS.empty $ lookup' "BODY[]" vs)) ls
+       return $ map (\(uid, vs) -> (uid, nilToEmpty $ fromMaybe BS.empty $ lookup' "BODY[]" vs)) ls
 
 -- | Fetch arbitrary data items and return values as 'String's.
 --
@@ -753,29 +839,75 @@ storeFull :: IMAPConnection -> String -> FlagsQuery -> Bool
           -> IO [(UID, [Flag])]
 storeFull conn uidstr query isSilent =
     fetchCommand conn ("UID STORE " ++ uidstr ++ " " ++ flgs query) procStore
-    where fstrs fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
+    where flagList fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
+          labelList ls = "(" ++ (concat $ intersperse " " $ map quoteIMAPString ls) ++ ")"
           toFStr s fstrs' =
               s ++ (if isSilent then ".SILENT" else "") ++ " " ++ fstrs'
-          flgs (ReplaceGmailLabels ls) = toFStr "X-GM-LABELS" $ fstrs ls
-          flgs (PlusGmailLabels ls)    = toFStr "+X-GM-LABELS" $ fstrs ls
-          flgs (MinusGmailLabels ls)   = toFStr "-X-GM-LABELS" $ fstrs ls
-          flgs (ReplaceFlags fs)       = toFStr "FLAGS" $ fstrs fs
-          flgs (PlusFlags fs)          = toFStr "+FLAGS" $ fstrs fs
-          flgs (MinusFlags fs)         = toFStr "-FLAGS" $ fstrs fs
+          flgs (ReplaceGmailLabels ls) = toFStr "X-GM-LABELS" $ labelList ls
+          flgs (PlusGmailLabels ls)    = toFStr "+X-GM-LABELS" $ labelList ls
+          flgs (MinusGmailLabels ls)   = toFStr "-X-GM-LABELS" $ labelList ls
+          flgs (ReplaceFlags fs)       = toFStr "FLAGS" $ flagList fs
+          flgs (PlusFlags fs)          = toFStr "+FLAGS" $ flagList fs
+          flgs (MinusFlags fs)         = toFStr "-FLAGS" $ flagList fs
           procStore (n, ps) = (maybe (toEnum (fromIntegral n)) read
                                          (lookup' "UID" ps)
-                              ,maybe [] (eval' dvFlags "") (lookup' "FLAG" ps))
+                              ,maybe [] (eval' dvFlags "") (lookup' "FLAGS" ps))
 
 
 store :: IMAPConnection -> UID -> FlagsQuery -> IO ()
 store conn i q = storeFull conn (show i) q True >> return ()
 
 copyFull :: IMAPConnection -> String -> String -> IO ()
-copyFull conn uidStr mbox =
-    sendCommand conn ("UID COPY " ++ uidStr ++ " " ++ quoteMailboxName mbox) pNone
+copyFull conn uidStr mbox = copyUIDFull conn uidStr mbox >> return ()
+
+-- | Like 'copyFull', but returns the UIDPLUS @COPYUID@ response code (RFC 4315)
+-- when the server supports it, identifying the UIDs assigned to the copied
+-- messages in the destination mailbox. Returns 'Nothing' on servers that don't
+-- advertise UIDPLUS.
+copyUIDFull :: IMAPConnection -> String -> String -> IO (Maybe CopyUID)
+copyUIDFull conn uidStr mbox =
+    do (resp, ()) <- sendCommandWithResponse conn ("UID COPY " ++ uidStr ++ " " ++ quoteMailboxName mbox) pNone
+       return $ copyUIDFromResponse resp
+  where
+    copyUIDFromResponse (OK (Just (COPYUID_sc copyUID')) _) = Just copyUID'
+    copyUIDFromResponse _ = Nothing
 
 copy :: IMAPConnection -> UID -> MailboxName -> IO ()
 copy conn uid mbox     = copyFull conn (show uid) mbox
+
+-- | Copy a single message to a mailbox, returning its UIDPLUS @COPYUID@ code.
+copyUID :: IMAPConnection -> UID -> MailboxName -> IO (Maybe CopyUID)
+copyUID conn uid mbox = copyUIDFull conn (show uid) mbox
+
+-- | Copy a set of messages to a mailbox, returning the UIDPLUS @COPYUID@ code.
+copyUIDs :: IMAPConnection -> [UID] -> MailboxName -> IO (Maybe CopyUID)
+copyUIDs _ [] _ = fail "copyUIDs: empty UID set"
+copyUIDs conn uids mbox = copyUIDFull conn (showUIDList uids) mbox
+
+-- | Copy a contiguous UID range (inclusive) to a mailbox, returning the
+-- UIDPLUS @COPYUID@ code.
+copyUIDR :: IMAPConnection -> (UID, UID) -> MailboxName -> IO (Maybe CopyUID)
+copyUIDR conn range mbox = copyUIDFull conn (showUIDRange range) mbox
+
+-- | @UID EXPUNGE@ (RFC 4315): permanently remove only the \\Deleted messages
+-- within the given UID set, leaving other \\Deleted messages untouched. Returns
+-- the message sequence numbers expunged.
+uidExpunge :: IMAPConnection -> [UID] -> IO [Integer]
+uidExpunge _ [] = fail "uidExpunge: empty UID set"
+uidExpunge conn uids = uidExpungeBySet conn $ showUIDList uids
+
+-- | Like 'uidExpunge' but over a contiguous UID range (inclusive).
+uidExpungeR :: IMAPConnection -> (UID, UID) -> IO [Integer]
+uidExpungeR conn range = uidExpungeBySet conn $ showUIDRange range
+
+uidExpungeBySet :: IMAPConnection -> UIDSet -> IO [Integer]
+uidExpungeBySet conn uidSet = sendCommand conn ("UID EXPUNGE " ++ uidSet) pExpunge
+
+showUIDList :: [UID] -> UIDSet
+showUIDList = intercalate "," . map show
+
+showUIDRange :: (UID, UID) -> UIDSet
+showUIDRange (start, end) = show start ++ ":" ++ show end
 
 move :: IMAPConnection -> UID -> MailboxName -> IO ()
 move conn uid mboxname = sendCommand conn ("UID MOVE " ++ show uid ++ " " ++ quoteMailboxName mboxname) pNone
@@ -876,12 +1008,4 @@ normalizeFetchKey = stripOrigin . stripPeek . map toUpper
 --       It must be reviewed. References: rfc3501#6.2.3, rfc2683#3.4.2.
 --       This function was tested against the password: `~1!2@3#4$5%6^7&8*9(0)-_=+[{]}\|;:'",<.>/? (with spaces in the laterals).
 escapeLogin :: String -> String
-escapeLogin x = "\"" ++ replaceSpecialChars x ++ "\""
-    where
-        replaceSpecialChars ""     = ""
-        replaceSpecialChars (c:cs) = escapeChar c ++ replaceSpecialChars cs
-        escapeChar '"' = "\\\""
-        escapeChar '\\' = "\\\\"
-        escapeChar '{' = "\\{"
-        escapeChar '}' = "\\}"
-        escapeChar s   = [s]
+escapeLogin = quoteIMAPString
