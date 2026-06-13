@@ -1,10 +1,13 @@
 module Main (main) where
 
+import Control.Exception (SomeException, displayException, try)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
 import Data.IORef
+import Data.List (isInfixOf)
 import Network.HaskellNet.BSStream
+import qualified Network.HaskellNet.Auth as Auth
 import qualified Network.HaskellNet.IMAP as IMAP
 import Network.HaskellNet.IMAP.Connection
 import Network.HaskellNet.IMAP.Parsers
@@ -68,6 +71,15 @@ assertCommand name expected steps action =
         _ <- action conn
         actual <- written
         expected @=? actual
+
+assertThrowsContaining :: String -> String -> IO a -> Test
+assertThrowsContaining name expected action =
+    name ~: TestCase $ do
+        result <- try (action >> return ()) :: IO (Either SomeException ())
+        case result of
+            Left err -> assertBool ("expected exception containing " ++ show expected)
+                        (expected `isInfixOf` displayException err)
+            Right _ -> assertFailure "expected exception"
 
 
 baseTest =
@@ -554,6 +566,37 @@ imapSearchApiTest =
               (BS.pack "UID SEARCH CHARSET UTF-8 SUBJECT" `B.isInfixOf` actual)
     ]
 
+imapRobustnessTest =
+    [ "connect accepts PREAUTH greeting" ~: TestCase $ do
+          (testStream, _) <- scriptedStream [ line "* PREAUTH already logged in" ]
+          _ <- IMAP.connectStream testStream
+          return ()
+    , "connect accepts lowercase ok greeting" ~: TestCase $ do
+          (testStream, _) <- scriptedStream [ line "* ok IMAP4rev1 ready" ]
+          _ <- IMAP.connectStream testStream
+          return ()
+    , assertThrowsContaining "connect rejects empty greeting" "cannot connect"
+          (do (testStream, _) <- scriptedStream [ line "" ]
+              IMAP.connectStream testStream)
+    , assertThrowsContaining "multi-step auth consumes + continuations" "NO:"
+          (do (conn, _) <- scriptedConnection
+                  [ line "+"
+                  , line "+ eyJzdGF0dXMiOiI0MDAifQ=="
+                  , line "000000 NO [AUTHENTICATIONFAILED] Invalid credentials"
+                  ]
+              IMAP.authenticate conn Auth.XOAUTH2 "user@example.test" "Bearer bad")
+    , "login quotes credentials without escaping braces" ~: TestCase $ do
+          (conn, written) <- scriptedConnection [ okLine "LOGIN completed" ]
+          IMAP.login conn "user" "pa{ss}"
+          actual <- written
+          commandBytes "000000 LOGIN \"user\" \"pa{ss}\"" @=? actual
+    , "fetch normalizes a NIL body to empty" ~: TestCase $ do
+          (conn, _) <- scriptedConnection
+              [ line "* 1 FETCH (UID 42 BODY[] NIL)", okLine "FETCH completed" ]
+          body <- IMAP.fetch conn 42
+          BS.empty @=? body
+    ]
+
 testData = [ "base" ~: baseTest
            , "capability" ~: capabilityTest
            , "noop" ~: noopTest
@@ -569,6 +612,7 @@ testData = [ "base" ~: baseTest
            , "imap uidplus api" ~: imapUIDPlusTest
            , "case insensitivity" ~: caseInsensitiveTest
            , "imap search api" ~: imapSearchApiTest
+           , "imap robustness" ~: imapRobustnessTest
            ]
 
 

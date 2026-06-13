@@ -138,9 +138,18 @@ connectIMAP hostname = connectIMAPPort hostname 143
 connectStream :: BSStream -> IO IMAPConnection
 connectStream s =
     do msg <- bsGetLine s
-       unless (and $ BS.zipWith (==) msg (BS.pack "* OK")) $
+       unless (isAcceptedGreeting msg) $
               fail "cannot connect to the server"
        newConnection s
+    where
+      isAcceptedGreeting msg =
+          case BS.words msg of
+            (star:greetingStatus:_) ->
+                star == BS.pack "*" && isReadyStatus greetingStatus
+            _ -> False
+      isReadyStatus greetingStatus =
+          let upperStatus = BS.map toUpper greetingStatus
+          in upperStatus == BS.pack "OK" || upperStatus == BS.pack "PREAUTH"
 
 ----------------------------------------------------------------------
 -- normal send commands
@@ -208,11 +217,25 @@ getResponse s = unlinesCRLF <$> getLs
                    then getLiteral l' (getLitLen l2)
                    else return l'
           crlfStr = BS.pack "\r\n"
-          isLiteral l = not (BS.null l) &&
-                        BS.last l == '}' &&
-                        BS.last (fst (BS.spanEnd isDigit (BS.init l))) == '{'
-          getLitLen = read . BS.unpack . snd . BS.spanEnd isDigit . BS.init
-          isTagged l = BS.head l == '*' && BS.head (BS.tail l) == ' '
+          literalLength :: ByteString -> Maybe Int
+          isLiteral = isJust . literalLength
+          getLitLen l = fromMaybe 0 (literalLength l)
+          literalLength l =
+              if BS.length l >= 3 && BS.last l == '}'
+              then parseLiteralTail $ reverse $ BS.unpack $ BS.init l
+              else Nothing
+          parseLiteralTail revBeforeClose =
+              case break (== '{') revBeforeClose of
+                (insideRev, _ : _) -> parseLiteralInside $ reverse insideRev
+                _ -> Nothing
+          parseLiteralInside inside =
+              let digits' = case reverse inside of
+                              '+' : rest -> reverse rest
+                              _ -> inside
+              in if not (null digits') && all isDigit digits'
+                 then Just $ read digits'
+                 else Nothing
+          isTagged l = BS.length l >= 2 && BS.take 2 l == BS.pack "* "
 
 mboxUpdate :: IMAPConnection -> MboxUpdate -> IO ()
 mboxUpdate conn (MboxUpdate exists' recent') = do
@@ -279,13 +302,12 @@ authenticate conn A.LOGIN username password =
 authenticate conn at username password =
     do (c, num) <- sendCommand' conn $ "AUTHENTICATE " ++ show at
        let challenge =
-               if BS.take 2 c == BS.pack "+ "
-               then A.b64Decode $ BS.unpack $ head $
-                    dropWhile (isSpace . BS.last) $ BS.inits $ BS.drop 2 c
+               if BS.take 1 c == BS.pack "+"
+               then A.b64Decode $ BS.unpack $ strip $ BS.drop 1 c
                else ""
        bsPutCrLf (stream conn) $ BS.pack $
                  A.auth at challenge username password
-       buf <- getResponse $ stream conn
+       buf <- getAuthResponse conn
        let (resp, mboxUp, value) = eval pNone (show6 num) buf
        case resp of
          OK _ _        -> do mboxUpdate conn $ mboxUp
@@ -293,6 +315,16 @@ authenticate conn at username password =
          NO _ msg      -> fail ("NO: " ++ msg)
          BAD _ msg     -> fail ("BAD: " ++ msg)
          PREAUTH _ msg -> fail ("preauth: " ++ msg)
+
+-- | Some SASL mechanisms (e.g. XOAUTH2) emit one or more @+@ challenge
+-- continuations before the final tagged response. Send an empty line in
+-- response to each so the exchange completes instead of stalling.
+getAuthResponse :: IMAPConnection -> IO ByteString
+getAuthResponse conn = do
+    buf <- getResponse $ stream conn
+    if BS.take 1 (strip buf) == BS.pack "+"
+       then bsPutCrLf (stream conn) BS.empty >> getAuthResponse conn
+       else return buf
 
 _select :: String -> IMAPConnection -> String -> IO ()
 _select cmd conn mboxName =
@@ -422,16 +454,22 @@ searchCharset conn charset queries =
                            else "")
                     ++ unwords (map show queries)) pSearch
 
+-- | An untagged NIL means "no data" (RFC 3501); normalize it to an empty
+-- body so callers don't see the literal atom. Real bodies arrive as IMAP
+-- literals and are never the bare atom NIL.
+nilToEmpty :: ByteString -> ByteString
+nilToEmpty bs = if bs == BS.pack "NIL" then BS.empty else bs
+
 fetch :: IMAPConnection -> UID -> IO ByteString
 fetch conn uid =
     do lst <- fetchByByteString conn uid "BODY[]"
-       return $ fromMaybe BS.empty $ lookup' "BODY[]" lst
+       return $ nilToEmpty $ fromMaybe BS.empty $ lookup' "BODY[]" lst
 
 -- | Like 'fetch' but without marking the email as seen/read
 fetchPeek :: IMAPConnection -> UID -> IO ByteString
 fetchPeek conn uid =
     do lst <- fetchByByteString conn uid "BODY.PEEK[]"
-       return $ fromMaybe BS.empty $ lookup' "BODY[]" lst
+       return $ nilToEmpty $ fromMaybe BS.empty $ lookup' "BODY[]" lst
 
 fetchHeader :: IMAPConnection -> UID -> IO ByteString
 fetchHeader conn uid =
@@ -468,14 +506,14 @@ fetchR :: IMAPConnection -> (UID, UID)
        -> IO [(UID, ByteString)]
 fetchR conn r =
     do lst <- fetchByByteStringR conn r "BODY[]"
-       return $ map (\(uid, vs) -> (uid, fromMaybe BS.empty $
+       return $ map (\(uid, vs) -> (uid, nilToEmpty $ fromMaybe BS.empty $
                                        lookup' "BODY[]" vs)) lst
 
 -- | Like 'fetchR' but without marking the email as seen/read
 fetchRPeek :: IMAPConnection -> (UID, UID) -> IO [(UID, ByteString)]
 fetchRPeek conn range =
     do ls <- fetchByByteStringR conn range "BODY.PEEK[]"
-       return $ map (\(uid, vs) -> (uid, fromMaybe BS.empty $ lookup' "BODY[]" vs)) ls
+       return $ map (\(uid, vs) -> (uid, nilToEmpty $ fromMaybe BS.empty $ lookup' "BODY[]" vs)) ls
 
 -- | Fetch arbitrary data items and return values as 'String's.
 --
@@ -801,18 +839,19 @@ storeFull :: IMAPConnection -> String -> FlagsQuery -> Bool
           -> IO [(UID, [Flag])]
 storeFull conn uidstr query isSilent =
     fetchCommand conn ("UID STORE " ++ uidstr ++ " " ++ flgs query) procStore
-    where fstrs fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
+    where flagList fs = "(" ++ (concat $ intersperse " " $ map show fs) ++ ")"
+          labelList ls = "(" ++ (concat $ intersperse " " $ map quoteIMAPString ls) ++ ")"
           toFStr s fstrs' =
               s ++ (if isSilent then ".SILENT" else "") ++ " " ++ fstrs'
-          flgs (ReplaceGmailLabels ls) = toFStr "X-GM-LABELS" $ fstrs ls
-          flgs (PlusGmailLabels ls)    = toFStr "+X-GM-LABELS" $ fstrs ls
-          flgs (MinusGmailLabels ls)   = toFStr "-X-GM-LABELS" $ fstrs ls
-          flgs (ReplaceFlags fs)       = toFStr "FLAGS" $ fstrs fs
-          flgs (PlusFlags fs)          = toFStr "+FLAGS" $ fstrs fs
-          flgs (MinusFlags fs)         = toFStr "-FLAGS" $ fstrs fs
+          flgs (ReplaceGmailLabels ls) = toFStr "X-GM-LABELS" $ labelList ls
+          flgs (PlusGmailLabels ls)    = toFStr "+X-GM-LABELS" $ labelList ls
+          flgs (MinusGmailLabels ls)   = toFStr "-X-GM-LABELS" $ labelList ls
+          flgs (ReplaceFlags fs)       = toFStr "FLAGS" $ flagList fs
+          flgs (PlusFlags fs)          = toFStr "+FLAGS" $ flagList fs
+          flgs (MinusFlags fs)         = toFStr "-FLAGS" $ flagList fs
           procStore (n, ps) = (maybe (toEnum (fromIntegral n)) read
                                          (lookup' "UID" ps)
-                              ,maybe [] (eval' dvFlags "") (lookup' "FLAG" ps))
+                              ,maybe [] (eval' dvFlags "") (lookup' "FLAGS" ps))
 
 
 store :: IMAPConnection -> UID -> FlagsQuery -> IO ()
@@ -969,12 +1008,4 @@ normalizeFetchKey = stripOrigin . stripPeek . map toUpper
 --       It must be reviewed. References: rfc3501#6.2.3, rfc2683#3.4.2.
 --       This function was tested against the password: `~1!2@3#4$5%6^7&8*9(0)-_=+[{]}\|;:'",<.>/? (with spaces in the laterals).
 escapeLogin :: String -> String
-escapeLogin x = "\"" ++ replaceSpecialChars x ++ "\""
-    where
-        replaceSpecialChars ""     = ""
-        replaceSpecialChars (c:cs) = escapeChar c ++ replaceSpecialChars cs
-        escapeChar '"' = "\\\""
-        escapeChar '\\' = "\\\\"
-        escapeChar '{' = "\\{"
-        escapeChar '}' = "\\}"
-        escapeChar s   = [s]
+escapeLogin = quoteIMAPString

@@ -9,6 +9,12 @@ unreleased
   - IMAP SEARCH string arguments are now quoted, LARGER/SMALLER no longer wrap
     their size in braces, and SEARCH automatically adds CHARSET UTF-8 (and
     sends the command UTF-8 encoded) when a query contains non-ASCII text
+  - assorted IMAP robustness fixes: accept a PREAUTH (and case-insensitive)
+    connection greeting; loop over SASL '+' challenge continuations (e.g.
+    XOAUTH2); handle non-synchronising {n+} and binary ~{n} literals in
+    getResponse; normalize a NIL message body to empty; read STORE result
+    flags from the FLAGS key and quote X-GM-LABELS; unify escapeLogin with
+    quoteIMAPString
 
 0.7 (2025-06-08)
   - updated to the lastest GHC, tested with 8.10.7 — 9.12.2 (PR #103)
