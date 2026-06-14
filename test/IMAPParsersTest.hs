@@ -55,6 +55,9 @@ scriptedConnection steps = do
 line :: String -> ReadStep
 line = ReadLine . BS.pack
 
+bytes :: String -> ReadStep
+bytes = ReadBytes . BS.pack
+
 okLine :: String -> ReadStep
 okLine = line . ("000000 OK " ++)
 
@@ -438,6 +441,15 @@ imapFetchTest =
               , okLine "STORE completed"
               ]
           IMAP.store conn 42 (IMAP.PlusFlags [Seen])
+    , "fetch works when BODY precedes UID" ~: TestCase $ do
+          (conn, _) <- scriptedConnection
+              [ line "* 12 FETCH (BODY[] {5}"
+              , bytes "hello"
+              , line " UID 999)"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetch conn 999
+          BS.pack "hello" @=? fetched
     ]
 
 testData = [ "base" ~: baseTest
