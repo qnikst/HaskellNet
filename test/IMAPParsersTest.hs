@@ -298,7 +298,7 @@ imapCommandTest =
           commandBytes "000000 STATUS \"foo bar\" (MESSAGES)" @=? actual
     , "append preserves raw crlf message bytes" ~: TestCase $ do
           let mailData = BS.pack "Subject: x\r\n\r\nBody\r\n"
-              expectedCommand = "000000 APPEND INBOX {" ++ show (BS.length mailData) ++ "}"
+              expectedCommand = "000000 APPEND \"INBOX\" {" ++ show (BS.length mailData) ++ "}"
           (conn, written) <- scriptedConnection
               [ line "+ Ready for literal"
               , okLine "APPEND completed"
@@ -364,6 +364,19 @@ imapFetchTest =
               , okLine "FETCH completed"
               ]
           fetched <- IMAP.fetch conn 42
+          body @=? fetched
+    , "fetch tolerates trailing UID/FLAGS after body literal (Office365/Exchange, #15)" ~: TestCase $ do
+          -- Office365 and Exchange append "UID nn FLAGS (\\Seen)" after the
+          -- BODY[] literal, before the closing ')'. The old Parsec parser
+          -- rejected this with "expected space or )".
+          let body = BS.pack "Content-Transfer-Encoding: quoted-printable\r\n\r\n"
+          (conn, _) <- scriptedConnection
+              [ line ("* 12 FETCH (BODY[] {" ++ show (BS.length body) ++ "}")
+              , ReadBytes body
+              , line " UID 12 FLAGS (\\Seen))"
+              , okLine "FETCH completed"
+              ]
+          fetched <- IMAP.fetch conn 12
           body @=? fetched
     , "fetchPeek reads body response without setting Seen" ~: TestCase $ do
           let body = BS.pack "peeked"
