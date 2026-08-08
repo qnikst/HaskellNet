@@ -4,6 +4,7 @@ import Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BS
 import Data.IORef
+import Data.List (intercalate)
 import Network.HaskellNet.BSStream
 import qualified Network.HaskellNet.IMAP as IMAP
 import Network.HaskellNet.IMAP.Connection
@@ -480,6 +481,37 @@ imapFetchTest =
           [] @=? fetched
           actual <- written
           B.empty @=? actual
+    , "fetchByByteStringSet splits long command lines" ~: TestCase $ do
+          let uids = take 123 [1000000,1000002..]
+              firstChunk = take 121 uids
+              secondChunk = drop 121 uids
+              firstUID = 1000240
+              secondUID = 1000242
+              firstStructure = BS.pack "(\"TEXT\" \"PLAIN\")"
+              secondStructure = BS.pack "(\"APPLICATION\" \"PDF\")"
+          (conn, written) <- scriptedConnection
+              [ line ("* 1 FETCH (BODYSTRUCTURE (\"TEXT\" \"PLAIN\") UID "
+                      ++ show firstUID ++ ")")
+              , line "000000 OK FETCH completed"
+              , line ("* 2 FETCH (BODYSTRUCTURE (\"APPLICATION\" \"PDF\") UID "
+                      ++ show secondUID ++ ")")
+              , line "000001 OK FETCH completed"
+              ]
+          fetched <- IMAP.fetchByByteStringSet conn uids "BODYSTRUCTURE"
+          [ (firstUID, [("BODYSTRUCTURE", firstStructure),
+                        ("UID", BS.pack $ show firstUID)])
+            , (secondUID, [("BODYSTRUCTURE", secondStructure),
+                           ("UID", BS.pack $ show secondUID)])
+            ] @=? fetched
+          actual <- written
+          let expected = B.append
+                  (commandBytes $ "000000 UID FETCH "
+                                  ++ intercalate "," (map show firstChunk)
+                                  ++ " BODYSTRUCTURE")
+                  (commandBytes $ "000001 UID FETCH "
+                                  ++ intercalate "," (map show secondChunk)
+                                  ++ " BODYSTRUCTURE")
+          expected @=? actual
     , "fetchByString keeps scalar and literal values compatible" ~: TestCase $ do
           let headers = BS.pack "hello"
           (conn, _) <- scriptedConnection

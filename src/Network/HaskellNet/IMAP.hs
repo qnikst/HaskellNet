@@ -475,15 +475,47 @@ fetchByByteStringR conn (s, e) command =
 -- | Fetch arbitrary data items for an exact set of UIDs.
 --
 -- Unlike 'fetchByByteStringR', this does not fetch messages whose UIDs happen
--- to lie between sparse search results.
+-- to lie between sparse search results. Large UID sets are split across
+-- commands whose generated command lines are at most approximately 1000
+-- octets, as recommended by RFC 2683 section 3.2.1.5.
 fetchByByteStringSet :: IMAPConnection -> [UID] -> String
                      -> IO [(UID, [(String, ByteString)])]
 fetchByByteStringSet _ [] _ = return []
 fetchByByteStringSet conn uids command =
-    fetchCommandBS conn
-        ("UID FETCH "++intercalate "," (map show uids)++" "++command) proc
-    where proc (n, ps) =
+    case chunkUIDsByLength availableUIDLength uids of
+      Nothing -> fail "UID FETCH command is too long to contain a UID"
+      Just uidChunks -> concat <$> mapM fetchUIDChunk uidChunks
+    where fetchPrefix = "UID FETCH "
+          fetchSuffix = " " ++ command
+          availableUIDLength = maxGeneratedCommandLength
+                             - length fetchPrefix - length fetchSuffix
+          fetchUIDChunk uidChunk =
+              fetchCommandBS conn
+                  (fetchPrefix ++ intercalate "," (map show uidChunk)
+                               ++ fetchSuffix) proc
+          proc (n, ps) =
               (maybe (toEnum (fromIntegral n)) (read . BS.unpack) (lookup' "UID" ps), ps)
+
+-- RFC 2683 recommends that clients limit generated command lines to
+-- approximately 1000 octets. Reserve space for the six-octet command tag,
+-- its separating space, and the terminating CRLF added by
+-- 'sendCommandNoResponse'.
+maxGeneratedCommandLength :: Int
+maxGeneratedCommandLength = 1000 - 6 - 1 - 2
+
+chunkUIDsByLength :: Int -> [UID] -> Maybe [[UID]]
+chunkUIDsByLength maxLength = go [] 0
+  where
+    go [] _ [] = Just []
+    go current _ [] = Just [reverse current]
+    go current currentLength (uid:rest)
+      | uidLength > maxLength = Nothing
+      | nextLength <= maxLength = go (uid:current) nextLength rest
+      | otherwise = (reverse current :) <$> go [uid] uidLength rest
+      where
+        uidLength = length (show uid)
+        separatorLength = if null current then 0 else 1
+        nextLength = currentLength + separatorLength + uidLength
 
 fetchCommand :: IMAPConnection -> String
              -> ((Integer, [(String, String)]) -> b) -> IO [b]
