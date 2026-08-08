@@ -87,6 +87,15 @@ baseTest =
      ~=? eval' pNone "a006"
              "* BYE Courier-IMAP server shutting down\r\n\
              \a006 OK LOGOUT completed\r\n"
+    ,(OK (Just (APPENDUID_sc (AppendUID 38505 3955))) "APPEND completed", MboxUpdate Nothing Nothing, ())
+     ~=? eval' pNone "a003"
+             "a003 OK [APPENDUID 38505 3955] APPEND completed\r\n"
+    ,(OK (Just (COPYUID_sc (CopyUID 38505 "304,319:320" "3956:3958"))) "COPY completed", MboxUpdate Nothing Nothing, ())
+     ~=? eval' pNone "a004"
+             "a004 OK [COPYUID 38505 304,319:320 3956:3958] COPY completed\r\n"
+    ,(NO (Just UIDNOTSTICKY) "UIDs are not sticky", MboxUpdate Nothing Nothing, ())
+     ~=? eval' pNone "a005"
+             "a005 NO [UIDNOTSTICKY] UIDs are not sticky\r\n"
     ]
 
 capabilityTest =
@@ -110,7 +119,7 @@ selectTest =
     [ ( OK (Just READ_WRITE) "SELECT completed"
       , MboxUpdate Nothing Nothing
       , MboxInfo "" 172 1 [Answered, Flagged, Deleted, Seen, Draft]
-                     [Deleted, Seen] True True 4392 3857529045 )
+                     [Deleted, Seen] True True 4392 3857529045 False )
       ~=? eval' pSelect "A142"
               "* 172 EXISTS\r\n\
               \* 1 RECENT\r\n\
@@ -123,7 +132,7 @@ selectTest =
     , (OK (Just READ_ONLY) "EXAMINE completed"
       , MboxUpdate Nothing Nothing
       , MboxInfo "" 17 2 [Answered, Flagged, Deleted, Seen, Draft]
-                     [] False False 4392 3857529045 )
+                     [] False False 4392 3857529045 False )
       ~=? eval' pSelect "A932"
               "* 17 EXISTS\r\n\
               \* 2 RECENT\r\n\
@@ -133,6 +142,12 @@ selectTest =
               \* FLAGS (\\Answered \\Flagged \\Deleted \\Seen \\Draft)\r\n\
               \* OK [PERMANENTFLAGS ()] No permanent flags permitted\r\n\
               \A932 OK [READ-ONLY] EXAMINE completed\r\n"
+    , (OK (Just READ_WRITE) "SELECT completed"
+      , MboxUpdate Nothing Nothing
+      , MboxInfo "" 0 0 [] [] True False 0 0 True )
+      ~=? eval' pSelect "A143"
+              "* NO [UIDNOTSTICKY] UIDs are not persistent\r\n\
+              \A143 OK [READ-WRITE] SELECT completed\r\n"
     ]
 
 listTest =
@@ -515,6 +530,70 @@ imapFetchTest =
           BS.pack "hello" @=? fetched
     ]
 
+imapUIDPlusTest =
+    [ "select retains uidnotsticky response code" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ line "* NO [UIDNOTSTICKY] UIDs are not persistent"
+              , okLine "[READ-WRITE] SELECT completed"
+              ]
+          IMAP.select conn "INBOX"
+          notSticky <- uidNotSticky conn
+          True @=? notSticky
+          actual <- written
+          commandBytes "000000 SELECT \"INBOX\"" @=? actual
+    , "appendFullUID returns appenduid response code" ~: TestCase $ do
+          let mailData = BS.pack "Subject: x\r\n\r\nBody\r\n"
+              expectedCommand = "000000 APPEND \"foo bar\" {" ++ show (BS.length mailData) ++ "}"
+          (conn, written) <- scriptedConnection
+              [ line "+ Ready for literal"
+              , okLine "[APPENDUID 38505 3955] APPEND completed"
+              ]
+          result <- IMAP.appendFullUID conn "foo bar" mailData Nothing Nothing
+          Just (AppendUID 38505 3955) @=? result
+          actual <- written
+          B.concat [ commandBytes expectedCommand, mailData, BS.pack "\r\n" ] @=? actual
+    , "copyUID returns copyuid response code" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ okLine "[COPYUID 38505 42 991] COPY completed" ]
+          result <- IMAP.copyUID conn 42 "Archive"
+          Just (CopyUID 38505 "42" "991") @=? result
+          actual <- written
+          commandBytes "000000 UID COPY 42 \"Archive\"" @=? actual
+    , "copyUIDR sends uid range" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ okLine "[COPYUID 38505 42:44 991:993] COPY completed" ]
+          result <- IMAP.copyUIDR conn (42, 44) "Archive"
+          Just (CopyUID 38505 "42:44" "991:993") @=? result
+          actual <- written
+          commandBytes "000000 UID COPY 42:44 \"Archive\"" @=? actual
+    , "copyUIDs sends uid set" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ okLine "[COPYUID 38505 42,44 991,993] COPY completed" ]
+          result <- IMAP.copyUIDs conn [42, 44] "Archive"
+          Just (CopyUID 38505 "42,44" "991,993") @=? result
+          actual <- written
+          commandBytes "000000 UID COPY 42,44 \"Archive\"" @=? actual
+    , "uidExpunge sends uid set" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ line "* 3 EXPUNGE"
+              , line "* 3 EXPUNGE"
+              , okLine "UID EXPUNGE completed"
+              ]
+          result <- IMAP.uidExpunge conn [3000, 3001]
+          [3, 3] @=? result
+          actual <- written
+          commandBytes "000000 UID EXPUNGE 3000,3001" @=? actual
+    , "uidExpungeR sends uid range" ~: TestCase $ do
+          (conn, written) <- scriptedConnection
+              [ line "* 4 EXPUNGE"
+              , okLine "UID EXPUNGE completed"
+              ]
+          result <- IMAP.uidExpungeR conn (3000, 3002)
+          [4] @=? result
+          actual <- written
+          commandBytes "000000 UID EXPUNGE 3000:3002" @=? actual
+    ]
+
 testData = [ "base" ~: baseTest
            , "capability" ~: capabilityTest
            , "noop" ~: noopTest
@@ -527,6 +606,7 @@ testData = [ "base" ~: baseTest
            , "imap commands" ~: imapCommandTest
            , "flags" ~: flagTest
            , "imap fetch api" ~: imapFetchTest
+           , "imap uidplus api" ~: imapUIDPlusTest
            ]
 
 

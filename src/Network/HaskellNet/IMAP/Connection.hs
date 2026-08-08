@@ -13,6 +13,7 @@ module Network.HaskellNet.IMAP.Connection
     , isFlagWritable
     , uidNext
     , uidValidity
+    , uidNotSticky
     , stream
     )
 where
@@ -74,6 +75,10 @@ uidNext c = _uidNext <$> getMailboxInfo c
 
 uidValidity :: IMAPConnection -> IO UID
 uidValidity c = _uidValidity <$> getMailboxInfo c
+
+-- | Whether the selected mailbox reported @UIDNOTSTICKY@ (RFC 4315).
+uidNotSticky :: IMAPConnection -> IO Bool
+uidNotSticky c = _uidNotSticky <$> getMailboxInfo c
 
 withNextCommandNum :: IMAPConnection -> (Int -> IO a) -> IO (a, Int)
 withNextCommandNum c act = do

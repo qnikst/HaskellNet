@@ -2,11 +2,14 @@ module Network.HaskellNet.IMAP.Types
     ( MailboxName
     , GmailLabel
     , UID
+    , UIDSet
     , Charset
     , MailboxInfo(..)
     , Flag(..)
     , Attribute(..)
     , MboxUpdate(..)
+    , AppendUID(..)
+    , CopyUID(..)
     , StatusCode(..)
     , ServerResponse(..)
     , MailboxStatus(..)
@@ -28,6 +31,7 @@ import Text.Packrat.Pos
 
 type MailboxName = String
 type UID = Word64
+type UIDSet = String
 type Charset = String
 type GmailLabel = String
 
@@ -40,6 +44,7 @@ data MailboxInfo = MboxInfo { _mailbox :: MailboxName
                             , _isFlagWritable :: Bool
                             , _uidNext :: UID
                             , _uidValidity :: UID
+                            , _uidNotSticky :: Bool
                             }
                  deriving (Show, Eq)
 
@@ -75,6 +80,24 @@ data MboxUpdate = MboxUpdate { exists :: Maybe Integer
                              , recent :: Maybe Integer }
                 deriving (Show, Eq)
 
+-- | The @APPENDUID@ response code (RFC 4315 UIDPLUS): the UIDVALIDITY of the
+-- destination mailbox and the UID assigned to the appended message.
+data AppendUID = AppendUID
+    { appendUIDValidity :: UID
+    , appendUID :: UID
+    }
+    deriving (Show, Eq)
+
+-- | The @COPYUID@ response code (RFC 4315 UIDPLUS): the UIDVALIDITY of the
+-- destination mailbox and the source/destination UID sets of the copied
+-- messages, in matching order.
+data CopyUID = CopyUID
+    { copyUIDValidity :: UID
+    , copyUIDSourceSet :: UIDSet
+    , copyUIDDestinationSet :: UIDSet
+    }
+    deriving (Show, Eq)
+
 data StatusCode = ALERT
                 | BADCHARSET [Charset]
                 | CAPABILITY_sc [String]
@@ -83,8 +106,11 @@ data StatusCode = ALERT
                 | READ_ONLY
                 | READ_WRITE
                 | TRYCREATE
+                | APPENDUID_sc AppendUID
+                | COPYUID_sc CopyUID
                 | UIDNEXT_sc UID
                 | UIDVALIDITY_sc UID
+                | UIDNOTSTICKY
                 | UNSEEN_sc Integer
                   deriving (Eq, Show)
 
@@ -118,4 +144,4 @@ instance Derivs RespDerivs where
     dvPos  = advPos
 
 emptyMboxInfo :: MailboxInfo
-emptyMboxInfo = MboxInfo "" 0 0 [] [] False False 0 0
+emptyMboxInfo = MboxInfo "" 0 0 [] [] False False 0 0 False
