@@ -20,6 +20,7 @@ module Network.HaskellNet.IMAP
     , fetchPeek, fetchRPeek
       -- * date-time helpers
     , datetimeToStringIMAP, stringToDatetimeIMAP
+    , DatetimeParseError(..), FetchInternalDateError(..)
       -- * other types
     , Flag(..), Attribute(..), MailboxStatus(..)
     , SearchQuery(..), FlagsQuery(..)
@@ -403,16 +404,28 @@ fetchSize conn uid =
     do lst <- fetchByByteString conn uid "RFC822.SIZE"
        return $ maybe 0 (read . BS.unpack) $ lookup "RFC822.SIZE" lst
 
+-- | Why 'fetchInternalDate' could not produce a date. The caller decides
+-- how to react; nothing is thrown.
+data FetchInternalDateError
+    = InternalDateAbsent
+      -- ^ The FETCH response carried no INTERNALDATE item.
+    | InternalDateInvalid DatetimeParseError
+      -- ^ The INTERNALDATE value did not parse as an RFC 3501 date-time.
+    deriving (Eq, Show)
+
 -- | Fetch a message's INTERNALDATE: the arrival time the server keeps
 -- for it. Feeding the result back into 'appendFull' preserves the date
 -- when copying a message into another mailbox, e.g. when migrating an
 -- account between mail providers.
-fetchInternalDate :: IMAPConnection -> UID -> IO CalendarTime
+fetchInternalDate :: IMAPConnection -> UID
+                  -> IO (Either FetchInternalDateError CalendarTime)
 fetchInternalDate conn uid =
     do lst <- fetchByByteString conn uid "INTERNALDATE"
-       case lookup "INTERNALDATE" lst of
-         Nothing -> fail ("no INTERNALDATE in FETCH response for UID " ++ show uid)
-         Just raw -> either fail return (stringToDatetimeIMAP (BS.unpack raw))
+       return $ case lookup "INTERNALDATE" lst of
+         Nothing -> Left InternalDateAbsent
+         Just raw ->
+             either (Left . InternalDateInvalid) Right
+                 (stringToDatetimeIMAP (BS.unpack raw))
 
 fetchHeaderFields :: IMAPConnection
                   -> UID -> [String] -> IO ByteString
@@ -873,6 +886,24 @@ datetimeToStringIMAP c =
       show2 (abs s `div` 3600) ++
       show2 ((abs s `mod` 3600) `div` 60)
 
+-- | Why an RFC 3501 @date-time@ string failed to parse. Every
+-- constructor carries the offending fragment, so a caller that wants a
+-- message can 'show' the error, and one that wants behaviour can match.
+data DatetimeParseError
+    = DatetimeMalformed String
+      -- ^ The input did not split into date, time and zone.
+    | DateMalformed String
+      -- ^ The date part was not @dd-Mon-yyyy@.
+    | TimeMalformed String
+      -- ^ The time part was not @hh:mm:ss@.
+    | ZoneMalformed String
+      -- ^ The zone part was not @(+\/-)HHMM@.
+    | MonthUnknown String
+      -- ^ The month abbreviation was not one of Jan..Dec.
+    | NumberMalformed String String
+      -- ^ A numeric field (named first) did not read as a number.
+    deriving (Eq, Show)
+
 -- | Parse a @date-time@ string per RFC 3501 into a 'CalendarTime':
 -- the format the server hands back for INTERNALDATE. Surrounding double
 -- quotes are accepted, and the day may be space-padded or single-digit
@@ -880,7 +911,7 @@ datetimeToStringIMAP c =
 -- a @date-time@ does not carry ('ctWDay', 'ctYDay', 'ctTZName',
 -- 'ctIsDST') are set to neutral values; conversions through
 -- 'System.Time.toClockTime' ignore them.
-stringToDatetimeIMAP :: String -> Either String CalendarTime
+stringToDatetimeIMAP :: String -> Either DatetimeParseError CalendarTime
 stringToDatetimeIMAP raw =
     case words (takeWhile (/= '"') (dropWhile (== '"') raw)) of
       [datePart, timePart, zonePart] ->
@@ -900,7 +931,7 @@ stringToDatetimeIMAP raw =
                                  , ctTZ = offset
                                  , ctIsDST = False
                                  }
-      _ -> Left ("invalid IMAP date-time: " ++ show raw)
+      _ -> Left (DatetimeMalformed raw)
     where
       parseDatePart s =
           case splitBy '-' s of
@@ -909,7 +940,7 @@ stringToDatetimeIMAP raw =
                    month <- parseMonth monthStr
                    year <- readFully "year" yearStr
                    return (day, month, year)
-            _ -> Left ("invalid IMAP date: " ++ show s)
+            _ -> Left (DateMalformed s)
       parseTimePart s =
           case splitBy ':' s of
             [hourStr, minuteStr, secondStr] ->
@@ -917,7 +948,7 @@ stringToDatetimeIMAP raw =
                    minute <- readFully "minute" minuteStr
                    second <- readFully "second" secondStr
                    return (hour, minute, second)
-            _ -> Left ("invalid IMAP time: " ++ show s)
+            _ -> Left (TimeMalformed s)
       parseZonePart (sign:h1:h2:m1:m2:[]) =
           do hours <- readFully "zone hours" [h1, h2]
              minutes <- readFully "zone minutes" [m1, m2]
@@ -925,16 +956,16 @@ stringToDatetimeIMAP raw =
              case sign of
                '+' -> return magnitude
                '-' -> return (negate magnitude)
-               _   -> Left ("invalid IMAP zone sign: " ++ show sign)
-      parseZonePart s = Left ("invalid IMAP zone: " ++ show s)
+               _   -> Left (ZoneMalformed [sign, h1, h2, m1, m2])
+      parseZonePart s = Left (ZoneMalformed s)
       parseMonth s =
           case lookup s [(showMonth m, m) | m <- [January ..]] of
             Just month -> Right month
-            Nothing -> Left ("invalid IMAP month: " ++ show s)
+            Nothing -> Left (MonthUnknown s)
       readFully what s =
           case reads s of
             [(value, "")] -> Right value
-            _ -> Left ("invalid IMAP date-time " ++ what ++ ": " ++ show s)
+            _ -> Left (NumberMalformed what s)
       splitBy c s =
           case break (== c) s of
             (piece, [])        -> [piece]
