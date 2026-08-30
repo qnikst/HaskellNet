@@ -10,6 +10,7 @@ import Network.HaskellNet.IMAP.Connection
 import Network.HaskellNet.IMAP.Parsers
 import Network.HaskellNet.IMAP.Types
 import System.Exit
+import System.Time
 
 import Test.HUnit
 
@@ -513,6 +514,51 @@ imapFetchTest =
               ]
           fetched <- IMAP.fetch conn 999
           BS.pack "hello" @=? fetched
+    , "fetchInternalDate parses the server's quoted date-time" ~: TestCase $ do
+          (conn, _) <- scriptedConnection
+              [ line "* 12 FETCH (INTERNALDATE \"17-Jul-1996 02:44:25 -0700\" UID 999)"
+              , okLine "FETCH completed"
+              ]
+          t <- IMAP.fetchInternalDate conn 999
+          (1996, July, 17, 2, 44, 25, -25200)
+              @=? (ctYear t, ctMonth t, ctDay t, ctHour t, ctMin t, ctSec t, ctTZ t)
+    ]
+
+sampleTime :: CalendarTime
+sampleTime = CalendarTime
+    { ctYear = 2026, ctMonth = February, ctDay = 2
+    , ctHour = 11, ctMin = 30, ctSec = 5, ctPicosec = 0
+    , ctWDay = Sunday, ctYDay = 0, ctTZName = "", ctTZ = 0, ctIsDST = False
+    }
+
+datetimeTest :: Test
+datetimeTest = TestList
+    [ "renders an RFC 3501 date-time with a +HHMM zone" ~: TestCase $
+          "\"02-Feb-2026 11:30:05 +0100\""
+              @=? IMAP.datetimeToStringIMAP sampleTime { ctTZ = 3600 }
+    , "renders a negative half-hour zone" ~: TestCase $
+          "\"02-Feb-2026 11:30:05 -0930\""
+              @=? IMAP.datetimeToStringIMAP sampleTime { ctTZ = -34200 }
+    , "parses a quoted date-time" ~: TestCase $
+          case IMAP.stringToDatetimeIMAP "\"17-Jul-1996 02:44:25 -0700\"" of
+            Left err -> assertFailure err
+            Right t -> (1996, July, 17, 2, 44, 25, -25200)
+                @=? (ctYear t, ctMonth t, ctDay t, ctHour t, ctMin t, ctSec t, ctTZ t)
+    , "parses a space-padded single-digit day" ~: TestCase $
+          case IMAP.stringToDatetimeIMAP "\" 2-Feb-2026 01:02:03 +0000\"" of
+            Left err -> assertFailure err
+            Right t -> 2 @=? ctDay t
+    , "round-trips through datetimeToStringIMAP" ~: TestCase $
+          case IMAP.stringToDatetimeIMAP (IMAP.datetimeToStringIMAP sampleTime { ctTZ = 7200 }) of
+            Left err -> assertFailure err
+            Right t ->
+                (ctYear sampleTime, ctMonth sampleTime, ctDay sampleTime
+                , ctHour sampleTime, ctMin sampleTime, ctSec sampleTime, 7200)
+                    @=? (ctYear t, ctMonth t, ctDay t, ctHour t, ctMin t, ctSec t, ctTZ t)
+    , "rejects nonsense" ~: TestCase $
+          case IMAP.stringToDatetimeIMAP "not a date" of
+            Left _ -> return ()
+            Right t -> assertFailure ("parsed nonsense as " ++ show t)
     ]
 
 testData = [ "base" ~: baseTest
@@ -527,6 +573,7 @@ testData = [ "base" ~: baseTest
            , "imap commands" ~: imapCommandTest
            , "flags" ~: flagTest
            , "imap fetch api" ~: imapFetchTest
+           , "datetime" ~: datetimeTest
            ]
 
 

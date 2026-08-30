@@ -15,9 +15,11 @@ module Network.HaskellNet.IMAP
     , idle
       -- * fetch commands
     , fetch, fetchHeader, fetchPeekHeader, fetchSize, fetchHeaderFields, fetchHeaderFieldsNot
-    , fetchFlags, fetchR, fetchByString, fetchByStringR
+    , fetchFlags, fetchInternalDate, fetchR, fetchByString, fetchByStringR
     , fetchByByteString, fetchByByteStringR, fetchByByteStringSet
     , fetchPeek, fetchRPeek
+      -- * date-time helpers
+    , datetimeToStringIMAP, stringToDatetimeIMAP
       -- * other types
     , Flag(..), Attribute(..), MailboxStatus(..)
     , SearchQuery(..), FlagsQuery(..)
@@ -400,6 +402,17 @@ fetchSize :: IMAPConnection -> UID -> IO Int
 fetchSize conn uid =
     do lst <- fetchByByteString conn uid "RFC822.SIZE"
        return $ maybe 0 (read . BS.unpack) $ lookup "RFC822.SIZE" lst
+
+-- | Fetch a message's INTERNALDATE: the arrival time the server keeps
+-- for it. Feeding the result back into 'appendFull' preserves the date
+-- when copying a message into another mailbox, e.g. when migrating an
+-- account between mail providers.
+fetchInternalDate :: IMAPConnection -> UID -> IO CalendarTime
+fetchInternalDate conn uid =
+    do lst <- fetchByByteString conn uid "INTERNALDATE"
+       case lookup "INTERNALDATE" lst of
+         Nothing -> fail ("no INTERNALDATE in FETCH response for UID " ++ show uid)
+         Just raw -> either fail return (stringToDatetimeIMAP (BS.unpack raw))
 
 fetchHeaderFields :: IMAPConnection
                   -> UID -> [String] -> IO ByteString
@@ -830,12 +843,6 @@ show2 n | n < 10    = '0' : show n
         | otherwise = show n
 
 
-show4 :: (Ord a, Num a, Show a) => a -> String
-show4 n | n > 1000 = show n
-        | n > 100  = '0' : show n
-        | n > 10   = "00" ++ show n
-        | otherwise  = "000" ++ show n
-
 dateToStringIMAP :: CalendarTime -> String
 dateToStringIMAP date = concat $ intersperse "-" [show2 $ ctDay date
                                                  , showMonth $ ctMonth date
@@ -845,7 +852,8 @@ timeToStringIMAP c = concat
                      $ intersperse ":"
                      $ fmap show2 [ctHour c, ctMin c, ctSec c]
 
--- Convert CalenarTime to "date-time" string per RFC3501
+-- | Convert a 'CalendarTime' to a quoted @date-time@ string per RFC 3501,
+-- e.g. @\"17-Jul-1996 02:44:25 -0700\"@. Inverse of 'stringToDatetimeIMAP'.
 datetimeToStringIMAP :: CalendarTime -> String
 datetimeToStringIMAP c =
   "\""
@@ -856,9 +864,81 @@ datetimeToStringIMAP c =
   ++ zone (ctTZ c)
   ++ "\""
   where
+    -- RFC 3501 zone is (+/-)HHMM. The offset is in seconds; render
+    -- hours and minutes separately (the previous rendering divided the
+    -- whole offset by 3600 and zero-padded it to four digits, turning
+    -- +0100 into +0001 and garbling negative offsets).
     zone s =
-      (if s>=0 then "+" else "-") ++
-      show4 (s `div` 3600)
+      (if s >= 0 then "+" else "-") ++
+      show2 (abs s `div` 3600) ++
+      show2 ((abs s `mod` 3600) `div` 60)
+
+-- | Parse a @date-time@ string per RFC 3501 into a 'CalendarTime':
+-- the format the server hands back for INTERNALDATE. Surrounding double
+-- quotes are accepted, and the day may be space-padded or single-digit
+-- as the grammar allows. Inverse of 'datetimeToStringIMAP'. The fields
+-- a @date-time@ does not carry ('ctWDay', 'ctYDay', 'ctTZName',
+-- 'ctIsDST') are set to neutral values; conversions through
+-- 'System.Time.toClockTime' ignore them.
+stringToDatetimeIMAP :: String -> Either String CalendarTime
+stringToDatetimeIMAP raw =
+    case words (takeWhile (/= '"') (dropWhile (== '"') raw)) of
+      [datePart, timePart, zonePart] ->
+          do (day, month, year) <- parseDatePart datePart
+             (hour, minute, second) <- parseTimePart timePart
+             offset <- parseZonePart zonePart
+             return CalendarTime { ctYear = year
+                                 , ctMonth = month
+                                 , ctDay = day
+                                 , ctHour = hour
+                                 , ctMin = minute
+                                 , ctSec = second
+                                 , ctPicosec = 0
+                                 , ctWDay = Sunday
+                                 , ctYDay = 0
+                                 , ctTZName = ""
+                                 , ctTZ = offset
+                                 , ctIsDST = False
+                                 }
+      _ -> Left ("invalid IMAP date-time: " ++ show raw)
+    where
+      parseDatePart s =
+          case splitBy '-' s of
+            [dayStr, monthStr, yearStr] ->
+                do day <- readFully "day" dayStr
+                   month <- parseMonth monthStr
+                   year <- readFully "year" yearStr
+                   return (day, month, year)
+            _ -> Left ("invalid IMAP date: " ++ show s)
+      parseTimePart s =
+          case splitBy ':' s of
+            [hourStr, minuteStr, secondStr] ->
+                do hour <- readFully "hour" hourStr
+                   minute <- readFully "minute" minuteStr
+                   second <- readFully "second" secondStr
+                   return (hour, minute, second)
+            _ -> Left ("invalid IMAP time: " ++ show s)
+      parseZonePart (sign:h1:h2:m1:m2:[]) =
+          do hours <- readFully "zone hours" [h1, h2]
+             minutes <- readFully "zone minutes" [m1, m2]
+             let magnitude = hours * 3600 + minutes * 60
+             case sign of
+               '+' -> return magnitude
+               '-' -> return (negate magnitude)
+               _   -> Left ("invalid IMAP zone sign: " ++ show sign)
+      parseZonePart s = Left ("invalid IMAP zone: " ++ show s)
+      parseMonth s =
+          case lookup s [(showMonth m, m) | m <- [January ..]] of
+            Just month -> Right month
+            Nothing -> Left ("invalid IMAP month: " ++ show s)
+      readFully what s =
+          case reads s of
+            [(value, "")] -> Right value
+            _ -> Left ("invalid IMAP date-time " ++ what ++ ": " ++ show s)
+      splitBy c s =
+          case break (== c) s of
+            (piece, [])        -> [piece]
+            (piece, _:rest) -> piece : splitBy c rest
 
 strip :: ByteString -> ByteString
 strip = fst . BS.spanEnd isSpace . BS.dropWhile isSpace
