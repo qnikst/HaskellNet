@@ -98,5 +98,6 @@ Test-suite imap-parsers
   Build-Depends:
     base >= 4.3 && < 4.23,
     bytestring >=0.10.2 && < 0.13,
+    old-time >= 1.0 && < 1.2,
     HaskellNet,
     HUnit >= 1.6 && < 1.7
